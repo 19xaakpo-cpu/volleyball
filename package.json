@@ -1,0 +1,19 @@
+{
+  "name": "mishkobol",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "5.9",
+    "vite": "^7.3.7"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5"
+  }
+}

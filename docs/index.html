@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1b2440" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="description" content="Мішкобол — волейбол мішками на двох: на одному пристрої, проти бота або по мережі." />
+  <title>Мішкобол</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" /><text y='.9em' font-size='90'>🏐</text></svg>" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <script type="module" crossorigin src="./assets/index-DowT7lg7.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-I1KNJhf2.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+
+    <div id="hud-buttons" class="hidden">
+      <button id="btn-pause" class="icon-btn" title="Пауза / меню (Esc)">⏸</button>
+      <button id="btn-mute" class="icon-btn" title="Звук (M)">🔊</button>
+      <button id="btn-full" class="icon-btn" title="На весь екран (F)">⛶</button>
+    </div>
+
+    <div id="touch" class="hidden"></div>
+
+    <!-- Головне меню -->
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <h1><span class="logo">🏐</span> Мішкобол</h1>
+        <p class="sub">Волейбол мішками на двох</p>
+
+        <div class="screen" data-screen="main">
+          <button class="big" data-go="local">👥 Удвох на одному пристрої</button>
+          <button class="big" data-go="bot">🤖 Проти бота</button>
+          <button class="big" data-go="online">🌐 Гра по мережі</button>
+          <div class="row settings">
+            <label>Гра до
+              <select id="target">
+                <option value="7">7</option>
+                <option value="11">11</option>
+                <option value="15" selected>15</option>
+                <option value="21">21</option>
+              </select>
+              очок (з перевагою 2)
+            </label>
+          </div>
+          <details class="help">
+            <summary>Правила і керування</summary>
+            <p>Відбивайте м'яч мішком так, щоб він упав на половині суперника. Одна сторона може торкнутися м'яча <b>не більше 3 разів поспіль</b> — четверте торкання віддає очко супернику. М'яч відскакує від стін і стелі.</p>
+            <p>Удар у стрибку чи з розбігу — сильніший. Присідання робить мішок нижчим і ширшим — зручно приймати низькі м'ячі.</p>
+            <table>
+              <tr><th></th><th>Лівий гравець</th><th>Правий гравець</th></tr>
+              <tr><td>Ходити</td><td><kbd>A</kbd> <kbd>D</kbd></td><td><kbd>←</kbd> <kbd>→</kbd></td></tr>
+              <tr><td>Стрибок</td><td><kbd>W</kbd></td><td><kbd>↑</kbd></td></tr>
+              <tr><td>Присісти</td><td><kbd>S</kbd></td><td><kbd>↓</kbd></td></tr>
+            </table>
+            <p>Проти бота і по мережі працюють обидва набори клавіш. На телефоні — кнопки на екрані.</p>
+          </details>
+        </div>
+
+        <div class="screen hidden" data-screen="bot">
+          <h2>Складність бота</h2>
+          <button class="big" data-bot="easy">🙂 Легко</button>
+          <button class="big" data-bot="normal">😐 Нормально</button>
+          <button class="big" data-bot="hard">😈 Складно</button>
+          <button class="link" data-go="main">← Назад</button>
+        </div>
+
+        <div class="screen hidden" data-screen="online">
+          <h2>Гра по мережі</h2>
+          <button class="big" id="btn-host">➕ Створити кімнату</button>
+          <div class="join-row">
+            <input id="join-code" maxlength="5" placeholder="КОД" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+            <button class="big" id="btn-join">Увійти</button>
+          </div>
+          <p class="note">Гравці з'єднуються напряму (WebRTC), тож затримка мінімальна. Ваша гра миттєво реагує на кнопки, а хід суперника вгадується і непомітно виправляється.</p>
+          <button class="link" data-go="main">← Назад</button>
+        </div>
+
+        <div class="screen hidden" data-screen="wait">
+          <h2 id="wait-title">З'єднання…</h2>
+          <div id="room-box" class="hidden">
+            <p>Код кімнати:</p>
+            <div id="room-code" class="code">-----</div>
+            <button class="big" id="btn-copy">📋 Копіювати посилання</button>
+            <button class="big hidden" id="btn-share">📤 Поділитися</button>
+          </div>
+          <p id="wait-status" class="note"></p>
+          <button class="link" id="btn-cancel">← Скасувати</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Пауза / повідомлення -->
+    <div id="pause" class="overlay hidden">
+      <div class="panel small">
+        <h2 id="pause-title">Пауза</h2>
+        <p id="pause-text" class="note"></p>
+        <button class="big" id="btn-resume">▶ Продовжити</button>
+        <button class="big" id="btn-tomenu">🏠 У меню</button>
+      </div>
+    </div>
+
+    <div id="rotate" class="hidden">📱↻ Поверніть телефон горизонтально</div>
+  </div>
+</body>
+</html>
