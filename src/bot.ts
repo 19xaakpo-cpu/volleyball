@@ -4,7 +4,7 @@
 // Працює лише локально (у мережевій грі бота немає), тож Math.random тут дозволено.
 
 import {
-  BALL_SUBSTEPS, GROUND, IN_JUMP, IN_LEFT, IN_RIGHT, NET_X, PH_OVER, PH_RALLY, PH_SERVE,
+  BALL_SUBSTEPS, GROUND, IN_CROUCH, IN_JUMP, IN_LEFT, IN_RIGHT, NET_X, PH_OVER, PH_RALLY, PH_SERVE,
   SACK_RY, W, ballGravityStep, cloneState, homeX, moveBallFree, sackRadii, step,
 } from './sim/game.ts';
 import type { Ball, GameEvent, GameState } from './sim/game.ts';
@@ -12,6 +12,8 @@ import type { Ball, GameEvent, GameState } from './sim/game.ts';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
 interface Profile {
+  blunder: number; // ймовірність схибити на черговому м'ячі
+  dig: boolean;
   react: number; // як часто бот переоцінює ситуацію (кадри)
   error: number; // розкид помилки позиціонування (px)
   pickTop: number; // з якої частки найкращих планів обирає випадково (0 — завжди найкращий)
@@ -20,14 +22,15 @@ interface Profile {
 }
 
 const PROFILES: Record<Difficulty, Profile> = {
-  easy: { react: 12, error: 26, pickTop: 0.6, jump: false, deadzone: 8 },
-  normal: { react: 6, error: 9, pickTop: 0.25, jump: true, deadzone: 5 },
-  hard: { react: 3, error: 2, pickTop: 0, jump: true, deadzone: 3 },
+  easy: { blunder: 0.25, dig: false, react: 12, error: 26, pickTop: 0.6, jump: false, deadzone: 8 },
+  normal: { blunder: 0.12, dig: false, react: 9, error: 18, pickTop: 0.35, jump: true, deadzone: 5 },
+  hard: { blunder: 0.03, dig: true, react: 3, error: 5, pickTop: 0, jump: true, deadzone: 3 },
 };
 
 const MODE_STAND = 0;
 const MODE_RUN = 1;
 const MODE_JUMP = 2;
+const MODE_DIG = 3; // присісти — сильне підкидання вгору
 
 interface Plan {
   x: number;
@@ -50,6 +53,8 @@ function planInput(s: GameState, p: number, plan: Plan, deadzone: number): numbe
   else if (d < -deadzone) inp |= IN_LEFT;
   if (plan.mode === MODE_RUN) {
     if (b.vy > 0 && b.y > me.y - ry - 130 && adx < 95) inp = toNet;
+  } else if (plan.mode === MODE_DIG) {
+    if (b.vy > 0 && b.y > me.y - 170 && adx < 80) inp |= IN_CROUCH;
   } else if (plan.mode === MODE_JUMP) {
     if (adx < 70 && b.y < me.y - 100 && b.y > me.y - 250 && b.vy > -4) inp |= IN_JUMP;
     if (me.y < GROUND) inp = (inp & ~(IN_LEFT | IN_RIGHT)) | (adx < 50 ? toNet : inp & (IN_LEFT | IN_RIGHT));
@@ -62,6 +67,9 @@ export class Bot {
   private prof: Profile;
   private plan: Plan;
   private wait = 0;
+  private lastOut = 0;
+  private rallyKey = '';
+  private blunder = 0;
   private rand: () => number;
 
   constructor(p: number, diff: Difficulty, rand: () => number = Math.random) {
@@ -81,7 +89,7 @@ export class Bot {
     for (let f = 1; f < 240; f++) {
       ballGravityStep(b);
       let floor = false;
-      for (let i = 0; i < BALL_SUBSTEPS; i++) floor = moveBallFree(b, null) || floor;
+      for (let i = 0; i < BALL_SUBSTEPS; i++) floor = moveBallFree(b, s.net, null) || floor;
       if ((b.vy > 0 && b.y >= hitY) || floor) return [b.x, f, this.mine(b.x)];
     }
     return [b.x, 240, this.mine(b.x)];
@@ -149,7 +157,9 @@ export class Bot {
       return;
     }
     const scored: [number, Plan][] = [];
-    const modes = this.prof.jump ? [MODE_STAND, MODE_RUN, MODE_JUMP] : [MODE_STAND, MODE_RUN];
+    const modes = [MODE_STAND, MODE_RUN];
+    if (this.prof.jump) modes.push(MODE_JUMP);
+    if (this.prof.dig) modes.push(MODE_DIG);
     for (const off of OFFSETS) {
       const x = Math.max(40, Math.min(W - 40, lx - dir * off));
       for (const mode of modes) {
@@ -165,7 +175,13 @@ export class Bot {
       idx = Math.floor(this.rand() * Math.max(1, Math.ceil(pool.length * this.prof.pickTop)));
       idx = scored.indexOf(pool[Math.min(idx, pool.length - 1)]);
     }
+    const key = `${s.ballSide}:${s.touchSide}:${s.touches}:${s.score[0]}:${s.score[1]}`;
+    if (key !== this.rallyKey) {
+      this.rallyKey = key;
+      this.blunder = this.rand() < this.prof.blunder ? (this.rand() < 0.5 ? -1 : 1) * (45 + this.rand() * 40) : 0;
+    }
     const best = scored[idx][1];
+    best.x += this.blunder;
     this.plan = { x: best.x + (this.rand() * 2 - 1) * this.prof.error, mode: best.mode };
   }
 
@@ -176,6 +192,14 @@ export class Bot {
       this.wait = this.prof.react;
       this.replan(s);
     }
-    return planInput(s, this.p, this.plan, this.prof.deadzone);
+    let out = planInput(s, this.p, this.plan, this.prof.deadzone);
+    // ривок до далекого м'яча (на "нормально" і "складно")
+    const me = s.players[this.p];
+    if (this.prof.jump && s.phase === PH_RALLY && me.y >= GROUND && me.dash === 0 && me.recover === 0 && me.dashCd === 0) {
+      const d = this.plan.x - me.x;
+      if (Math.abs(d) > 230 && !(this.lastOut & IN_CROUCH)) out = (out & ~IN_JUMP) | IN_CROUCH | (d > 0 ? IN_RIGHT : IN_LEFT);
+    }
+    this.lastOut = out;
+    return out;
   }
 }

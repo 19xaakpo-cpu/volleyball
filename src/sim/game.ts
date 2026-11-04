@@ -7,7 +7,6 @@ export const W = 960;
 export const H = 540;
 export const GROUND = 490;
 export const NET_X = W / 2;
-export const NET_HALF = 6;
 export const NET_TOP = GROUND - 130;
 
 export const BALL_R = 17;
@@ -28,6 +27,13 @@ const JUMP_V = 15.5;
 const HIT_E = 0.75;
 const MIN_POP = 7.5;
 const HIT_COOLDOWN = 8;
+/** присідання: м'яч підкидається вгору з такою швидкістю */
+const CROUCH_POP = 14.5;
+/** ривок у присіді */
+export const DASH_FRAMES = 11;
+const DASH_SPEED = 15;
+export const DASH_RECOVER = 26;
+const DASH_COOLDOWN = 50;
 
 export const MAX_TOUCHES = 3;
 const SERVE_FREEZE = 45;
@@ -49,6 +55,13 @@ export const FAULT_NONE = 0;
 export const FAULT_FLOOR = 1;
 export const FAULT_TOUCHES = 2;
 
+/** Форма "сітки": стовп напівшириною half з круглою верхівкою радіуса cap. */
+export interface NetShape {
+  half: number;
+  cap: number;
+}
+export const DEFAULT_NET: NetShape = { half: 6, cap: 6 };
+
 export interface Sack {
   x: number;
   y: number; // лінія "ніг" (низ мішка)
@@ -56,6 +69,11 @@ export interface Sack {
   vy: number;
   crouch: boolean;
   cooldown: number;
+  dash: number; // кадрів ривка лишилось
+  dashDir: number;
+  recover: number; // кадрів "підйому" після ривка
+  dashCd: number;
+  prevIn: number;
 }
 
 export interface Ball {
@@ -82,16 +100,18 @@ export interface GameState {
   faultBy: number;
   ready: [boolean, boolean];
   winner: number;
+  net: NetShape;
 }
 
 export type GameEvent =
-  | { type: 'hit'; p: number; speed: number; x: number; y: number }
+  | { type: 'hit'; p: number; speed: number; x: number; y: number; pop: boolean }
   | { type: 'wall'; x: number; y: number }
   | { type: 'net'; x: number; y: number }
   | { type: 'floor'; x: number; y: number }
   | { type: 'point'; winner: number; fault: number }
   | { type: 'serve' }
   | { type: 'jump'; p: number }
+  | { type: 'dash'; p: number; dir: number }
   | { type: 'over'; winner: number };
 
 export function homeX(p: number): number {
@@ -99,10 +119,10 @@ export function homeX(p: number): number {
 }
 
 function newSack(p: number): Sack {
-  return { x: homeX(p), y: GROUND, vx: 0, vy: 0, crouch: false, cooldown: 0 };
+  return { x: homeX(p), y: GROUND, vx: 0, vy: 0, crouch: false, cooldown: 0, dash: 0, dashDir: 0, recover: 0, dashCd: 0, prevIn: 0 };
 }
 
-export function createGame(target = 15, server = 0): GameState {
+export function createGame(target = 15, server = 0, net: NetShape = DEFAULT_NET): GameState {
   const s: GameState = {
     frame: 0,
     phase: PH_SERVE,
@@ -120,6 +140,7 @@ export function createGame(target = 15, server = 0): GameState {
     faultBy: -1,
     ready: [false, false],
     winner: -1,
+    net: { half: net.half, cap: net.cap },
   };
   setupServe(s);
   return s;
@@ -136,6 +157,9 @@ function setupServe(s: GameState) {
     k.vy = 0;
     k.crouch = false;
     k.cooldown = 0;
+    k.dash = 0;
+    k.recover = 0;
+    k.dashCd = 0;
   }
   s.ball.x = homeX(s.server);
   s.ball.y = 170;
@@ -148,17 +172,19 @@ function setupServe(s: GameState) {
   s.faultBy = -1;
 }
 
+function cloneSack(a: Sack): Sack {
+  return {
+    x: a.x, y: a.y, vx: a.vx, vy: a.vy, crouch: a.crouch, cooldown: a.cooldown,
+    dash: a.dash, dashDir: a.dashDir, recover: a.recover, dashCd: a.dashCd, prevIn: a.prevIn,
+  };
+}
+
 export function cloneState(s: GameState): GameState {
-  const a = s.players[0];
-  const b = s.players[1];
   return {
     frame: s.frame,
     phase: s.phase,
     timer: s.timer,
-    players: [
-      { x: a.x, y: a.y, vx: a.vx, vy: a.vy, crouch: a.crouch, cooldown: a.cooldown },
-      { x: b.x, y: b.y, vx: b.vx, vy: b.vy, crouch: b.crouch, cooldown: b.cooldown },
-    ],
+    players: [cloneSack(s.players[0]), cloneSack(s.players[1])],
     ball: { x: s.ball.x, y: s.ball.y, vx: s.ball.vx, vy: s.ball.vy },
     score: [s.score[0], s.score[1]],
     server: s.server,
@@ -171,6 +197,7 @@ export function cloneState(s: GameState): GameState {
     faultBy: s.faultBy,
     ready: [s.ready[0], s.ready[1]],
     winner: s.winner,
+    net: s.net,
   };
 }
 
@@ -189,10 +216,12 @@ export function hashState(s: GameState): number {
   mix(s.frame); mix(s.phase); mix(s.timer);
   for (const k of s.players) {
     mix(k.x); mix(k.y); mix(k.vx); mix(k.vy); mix(k.crouch ? 1 : 0); mix(k.cooldown);
+    mix(k.dash); mix(k.dashDir); mix(k.recover); mix(k.dashCd); mix(k.prevIn);
   }
   mix(s.ball.x); mix(s.ball.y); mix(s.ball.vx); mix(s.ball.vy);
   mix(s.score[0]); mix(s.score[1]); mix(s.server); mix(s.touchSide); mix(s.touches);
   mix(s.ballSide); mix(s.ready[0] ? 1 : 0); mix(s.ready[1] ? 1 : 0); mix(s.winner);
+  mix(s.net.half); mix(s.net.cap);
   return h >>> 0;
 }
 
@@ -216,16 +245,39 @@ function limitSpeed(b: Ball) {
 function updateSack(s: GameState, p: number, input: number, events: GameEvent[] | null) {
   const k = s.players[p];
   const onGround = k.y >= GROUND;
-  const wantCrouch = (input & IN_CROUCH) !== 0;
-  k.crouch = wantCrouch;
-  const speed = k.crouch && onGround ? CROUCH_SPEED : SACK_SPEED;
   let dir = 0;
   if (input & IN_LEFT) dir -= 1;
   if (input & IN_RIGHT) dir += 1;
-  k.vx = dir * speed;
-  if (onGround && !k.crouch && (input & IN_JUMP)) {
-    k.vy = -JUMP_V;
-    if (events) events.push({ type: 'jump', p });
+  const crouchPressed = (input & IN_CROUCH) !== 0 && (k.prevIn & IN_CROUCH) === 0;
+  k.prevIn = input;
+  if (k.dashCd > 0) k.dashCd--;
+
+  // ривок: натиснути "присісти" під час бігу
+  if (onGround && crouchPressed && dir !== 0 && k.dash === 0 && k.recover === 0 && k.dashCd === 0) {
+    k.dash = DASH_FRAMES;
+    k.dashDir = dir;
+    k.dashCd = DASH_COOLDOWN;
+    if (events) events.push({ type: 'dash', p, dir });
+  }
+
+  if (k.dash > 0) {
+    k.crouch = true;
+    k.vx = k.dashDir * DASH_SPEED;
+    k.dash--;
+    if (k.dash === 0) k.recover = DASH_RECOVER;
+  } else if (k.recover > 0) {
+    // після ривка мішок довше "підводиться"
+    k.crouch = true;
+    k.vx = dir * CROUCH_SPEED * 0.6;
+    k.recover--;
+  } else {
+    k.crouch = (input & IN_CROUCH) !== 0;
+    const speed = k.crouch && onGround ? CROUCH_SPEED : SACK_SPEED;
+    k.vx = dir * speed;
+    if (onGround && !k.crouch && (input & IN_JUMP)) {
+      k.vy = -JUMP_V;
+      if (events) events.push({ type: 'jump', p });
+    }
   }
   k.vy += SACK_G;
   k.x += k.vx;
@@ -235,8 +287,9 @@ function updateSack(s: GameState, p: number, input: number, events: GameEvent[] 
     k.vy = 0;
   }
   const [rx] = sackRadii(k);
-  if (p === 0) k.x = clamp(k.x, rx, NET_X - NET_HALF - rx);
-  else k.x = clamp(k.x, NET_X + NET_HALF + rx, W - rx);
+  const nh = s.net.half;
+  if (p === 0) k.x = clamp(k.x, rx, NET_X - nh - rx);
+  else k.x = clamp(k.x, NET_X + nh + rx, W - rx);
   if (k.cooldown > 0) k.cooldown--;
 }
 
@@ -293,46 +346,58 @@ function collideSack(b: Ball, k: Sack): boolean {
   }
   b.vx = rvx + k.vx;
   b.vy = rvy + k.vy;
+  // присідання: сильне підкидання вгору (м'яч зверху мішка)
+  if (k.crouch && ny < 0.3) {
+    b.vx = b.vx * 0.45 + k.vx * 0.25;
+    if (b.vy > -CROUCH_POP) b.vy = -CROUCH_POP;
+  }
   limitSpeed(b);
   return true;
 }
 
-// Сітка: прямокутник з напівкруглим верхом. Повертає true при зіткненні.
-function collideNet(b: Ball): boolean {
-  const capY = NET_TOP + NET_HALF;
-  if (b.y <= capY) {
-    const dx = b.x - NET_X;
-    const dy = b.y - capY;
-    const r = BALL_R + NET_HALF;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= r * r) return false;
+function reflect(b: Ball, nx: number, ny: number, e: number) {
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0) {
+    b.vx -= (1 + e) * vn * nx;
+    b.vy -= (1 + e) * vn * ny;
+  }
+}
+
+// "Сітка": стовп з круглою верхівкою. Повертає true при зіткненні.
+function collideNet(b: Ball, net: NetShape): boolean {
+  const capY = NET_TOP + net.cap;
+  let hit = false;
+  if (b.y > capY && Math.abs(b.x - NET_X) < BALL_R + net.half) {
+    // бокові грані стовпа
+    if (b.x < NET_X) {
+      b.x = NET_X - net.half - BALL_R - 0.1;
+      if (b.vx > 0) b.vx = -b.vx * NET_E;
+    } else {
+      b.x = NET_X + net.half + BALL_R + 0.1;
+      if (b.vx < 0) b.vx = -b.vx * NET_E;
+    }
+    hit = true;
+  }
+  // кругла верхівка
+  const dx = b.x - NET_X;
+  const dy = b.y - capY;
+  const r = BALL_R + net.cap;
+  const d2 = dx * dx + dy * dy;
+  if (d2 < r * r) {
     const d = Math.sqrt(d2);
     let nx = 0, ny = -1;
     if (d > 0) { nx = dx / d; ny = dy / d; }
     b.x = NET_X + nx * (r + 0.1);
     b.y = capY + ny * (r + 0.1);
-    const vn = b.vx * nx + b.vy * ny;
-    if (vn < 0) {
-      b.vx -= (1 + NET_E) * vn * nx;
-      b.vy -= (1 + NET_E) * vn * ny;
-    }
-    return true;
+    reflect(b, nx, ny, NET_E);
+    hit = true;
   }
-  if (Math.abs(b.x - NET_X) >= BALL_R + NET_HALF) return false;
-  // бокові грані
-  if (b.x < NET_X) {
-    b.x = NET_X - NET_HALF - BALL_R - 0.1;
-    if (b.vx > 0) b.vx = -b.vx * NET_E;
-  } else {
-    b.x = NET_X + NET_HALF + BALL_R + 0.1;
-    if (b.vx < 0) b.vx = -b.vx * NET_E;
-  }
-  return true;
+  return hit;
 }
 
-// Рух м'яча без гравців: гравітація, стіни, стеля, сітка.
-// Повертає 1 якщо м'яч торкнувся підлоги. Використовується і ботом для прогнозу.
-export function moveBallFree(b: Ball, events: GameEvent[] | null): boolean {
+// Рух м'яча без гравців: стіни, сітка (стелі немає — м'яч може залетіти за верх екрана).
+// Повертає true якщо м'яч торкнувся підлоги. Використовується і ботом для прогнозу.
+export function moveBallFree(b: Ball, net: NetShape, events: GameEvent[] | null): boolean {
   let floor = false;
   b.x += b.vx / SUBSTEPS;
   b.y += b.vy / SUBSTEPS;
@@ -345,12 +410,7 @@ export function moveBallFree(b: Ball, events: GameEvent[] | null): boolean {
     b.vx = -b.vx * WALL_E;
     if (events) events.push({ type: 'wall', x: b.x, y: b.y });
   }
-  if (b.y < BALL_R) {
-    b.y = BALL_R;
-    b.vy = -b.vy * WALL_E;
-    if (events) events.push({ type: 'wall', x: b.x, y: b.y });
-  }
-  if (collideNet(b) && events) events.push({ type: 'net', x: b.x, y: b.y });
+  if (collideNet(b, net) && events) events.push({ type: 'net', x: b.x, y: b.y });
   if (b.y >= GROUND - BALL_R) {
     b.y = GROUND - BALL_R;
     floor = true;
@@ -391,15 +451,6 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
   if (s.phase === PH_SERVE) {
     // м'яч завис над подаючим, гравці можуть рухатися
     s.timer--;
-    for (let p = 0; p < 2; p++) {
-      const k = s.players[p];
-      // якщо гравець дістав м'яч під час заморозки — одразу починаємо розіграш
-      const [rx, ry] = sackRadii(k);
-      const dx = b.x - k.x, dy = b.y - (k.y - ry);
-      if (s.timer <= 0 || (Math.abs(dx) < rx + BALL_R && Math.abs(dy) < BALL_R + 4)) {
-        s.timer = 0;
-      }
-    }
     if (s.timer <= 0) {
       s.phase = PH_RALLY;
       if (events) events.push({ type: 'serve' });
@@ -431,7 +482,7 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
 
   ballGravityStep(b);
   for (let i = 0; i < SUBSTEPS; i++) {
-    const floor = moveBallFree(b, s.phase === PH_RALLY ? events : null);
+    const floor = moveBallFree(b, s.net, s.phase === PH_RALLY ? events : null);
     if (s.phase !== PH_RALLY) {
       if (floor) {
         // після очка м'яч просто стрибає по підлозі із загасанням
@@ -452,7 +503,7 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
             s.touches++;
           }
           if (events) {
-            events.push({ type: 'hit', p, speed: Math.sqrt(b.vx * b.vx + b.vy * b.vy), x: b.x, y: b.y });
+            events.push({ type: 'hit', p, speed: Math.sqrt(b.vx * b.vx + b.vy * b.vy), x: b.x, y: b.y, pop: k.crouch });
           }
           if (s.touches > MAX_TOUCHES) {
             awardPoint(s, 1 - p, FAULT_TOUCHES, p, events);
@@ -463,12 +514,11 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
         }
       }
     }
-    // мішок міг виштовхнути м'яч у стіну/стелю/сітку — повертаємо в межі
+    // мішок міг виштовхнути м'яч у стіну/сітку — повертаємо в межі
     if (b.x < BALL_R) { b.x = BALL_R; if (b.vx < 0) b.vx = -b.vx; }
     else if (b.x > W - BALL_R) { b.x = W - BALL_R; if (b.vx > 0) b.vx = -b.vx; }
-    if (b.y < BALL_R) { b.y = BALL_R; if (b.vy < 0) b.vy = -b.vy; }
     if (b.y > GROUND - BALL_R) b.y = GROUND - BALL_R;
-    collideNet(b);
+    collideNet(b, s.net);
     if (s.phase !== PH_RALLY) continue;
     const side = b.x < NET_X ? 0 : 1;
     if (side !== s.ballSide) {
@@ -499,4 +549,14 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
       }
     }
   }
+}
+
+/** Прогнати матч бот-проти-бота повністю (для турнірів): повертає рахунок. */
+export function quickSim(target: number, net: NetShape, inputs: (s: GameState) => [number, number], maxFrames = 60 * 60 * 30): [number, number] {
+  const s = createGame(target, 0, net);
+  for (let f = 0; f < maxFrames && s.phase !== PH_OVER; f++) {
+    const [a, b] = inputs(s);
+    step(s, a, b);
+  }
+  return [s.score[0], s.score[1]];
 }

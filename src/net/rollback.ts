@@ -3,7 +3,7 @@
 // а при помилці прогнозу відкочуємось і пересимульовуємо.
 
 import { cloneState, createGame, hashState, step } from '../sim/game.ts';
-import type { GameEvent, GameState } from '../sim/game.ts';
+import type { GameEvent, GameState, NetShape } from '../sim/game.ts';
 
 export interface Transport {
   send(msg: NetMsg): void;
@@ -65,10 +65,10 @@ export class RollbackSession {
   private now: () => number;
   private lastPing = -1e9;
 
-  constructor(opts: { local: number; target: number; transport: Transport; inputDelay?: number; now?: () => number }) {
+  constructor(opts: { local: number; target: number; transport: Transport; inputDelay?: number; now?: () => number; net?: NetShape }) {
     this.local = opts.local;
     this.remote = 1 - opts.local;
-    this.state = createGame(opts.target, 0);
+    this.state = createGame(opts.target, 0, opts.net);
     this.transport = opts.transport;
     this.inputDelay = opts.inputDelay ?? 2;
     this.now = opts.now ?? (() => performance.now());

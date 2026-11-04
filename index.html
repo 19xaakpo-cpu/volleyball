@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#1b2440" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="description" content="Мішкобол — волейбол мішками на двох: на одному пристрої, проти бота або по мережі." />
+  <meta name="description" content="Мішкобол — волейбол мішками на двох: на одному пристрої, проти бота, по мережі і турніри." />
   <title>Мішкобол</title>
-  <link rel="icon" href="./icon.svg" type="image/svg+xml" /><text y='.9em' font-size='90'>🏐</text></svg>" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="manifest" href="./manifest.webmanifest" />
 </head>
 <body>
@@ -23,36 +23,37 @@
 
     <div id="touch" class="hidden"></div>
 
-    <!-- Головне меню -->
     <div id="menu" class="overlay">
       <div class="panel">
         <h1><span class="logo">🏐</span> Мішкобол</h1>
-        <p class="sub">Волейбол мішками на двох</p>
+        <p class="sub">Волейбол мішками</p>
 
+        <!-- головне -->
         <div class="screen" data-screen="main">
           <button class="big" data-go="local">👥 Удвох на одному пристрої</button>
           <button class="big" data-go="bot">🤖 Проти бота</button>
-          <button class="big" data-go="online">🌐 Гра по мережі</button>
-          <div class="row settings">
-            <label>Гра до
-              <select id="target">
-                <option value="7">7</option>
-                <option value="11">11</option>
-                <option value="15" selected>15</option>
-                <option value="21">21</option>
-              </select>
-              очок (з перевагою 2)
-            </label>
+          <button class="big" data-go="online">🌐 Гра по мережі / виклик друга</button>
+          <button class="big" data-go="tsetup">🏆 Турнір (3–8 гравців)</button>
+          <div class="row2btn">
+            <button class="big" id="btn-my-sack">🎨 Мій мішок</button>
+            <button class="big" id="btn-p2-sack">🎨 Мішок гравця 2</button>
+          </div>
+          <div class="settings">
+            <label>Локація <select id="set-location"></select></label>
+            <label>М'яч <select id="set-ball"></select> <button class="mini" id="btn-edit-ball" title="Свій дизайн">✏️</button></label>
+            <label>Гра до <select id="set-target">
+              <option value="7">7</option><option value="11">11</option><option value="15">15</option><option value="21">21</option>
+            </select> очок (перевага 2)</label>
           </div>
           <details class="help">
             <summary>Правила і керування</summary>
-            <p>Відбивайте м'яч мішком так, щоб він упав на половині суперника. Одна сторона може торкнутися м'яча <b>не більше 3 разів поспіль</b> — четверте торкання віддає очко супернику. М'яч відскакує від стін і стелі.</p>
-            <p>Удар у стрибку чи з розбігу — сильніший. Присідання робить мішок нижчим і ширшим — зручно приймати низькі м'ячі.</p>
+            <p>Відбивайте м'яч мішком так, щоб він упав на половині суперника. Одна сторона може торкнутися м'яча <b>не більше 3 разів поспіль</b> — четверте торкання віддає очко супернику. М'яч відскакує від стін, а вгорі може залетіти за екран — стежте за тінню і стрілкою.</p>
+            <p><b>Присісти</b> — сильне підкидання м'яча вгору. <b>Присісти під час бігу</b> — ривок у бік руху, але після нього мішок довше підводиться.</p>
             <table>
               <tr><th></th><th>Лівий гравець</th><th>Правий гравець</th></tr>
               <tr><td>Ходити</td><td><kbd>A</kbd> <kbd>D</kbd></td><td><kbd>←</kbd> <kbd>→</kbd></td></tr>
               <tr><td>Стрибок</td><td><kbd>W</kbd></td><td><kbd>↑</kbd></td></tr>
-              <tr><td>Присісти</td><td><kbd>S</kbd></td><td><kbd>↓</kbd></td></tr>
+              <tr><td>Присісти / ривок</td><td><kbd>S</kbd></td><td><kbd>↓</kbd></td></tr>
             </table>
             <p>Проти бота і по мережі працюють обидва набори клавіш. На телефоні — кнопки на екрані.</p>
           </details>
@@ -60,20 +61,20 @@
 
         <div class="screen hidden" data-screen="bot">
           <h2>Складність бота</h2>
-          <button class="big" data-bot="easy">🙂 Легко</button>
-          <button class="big" data-bot="normal">😐 Нормально</button>
+          <button class="big" data-bot="easy">🥔 Легко</button>
+          <button class="big" data-bot="normal">🧅 Нормально</button>
           <button class="big" data-bot="hard">😈 Складно</button>
           <button class="link" data-go="main">← Назад</button>
         </div>
 
         <div class="screen hidden" data-screen="online">
           <h2>Гра по мережі</h2>
-          <button class="big" id="btn-host">➕ Створити кімнату</button>
+          <button class="big" id="btn-host">⚔️ Викликати друга (створити кімнату)</button>
           <div class="join-row">
             <input id="join-code" maxlength="5" placeholder="КОД" autocomplete="off" autocapitalize="characters" spellcheck="false" />
             <button class="big" id="btn-join">Увійти</button>
           </div>
-          <p class="note">Гравці з'єднуються напряму (WebRTC), тож затримка мінімальна. Ваша гра миттєво реагує на кнопки, а хід суперника вгадується і непомітно виправляється.</p>
+          <p class="note">Гравці з'єднуються напряму (WebRTC). Ваша гра миттєво реагує на кнопки, а хід суперника вгадується і непомітно виправляється. Локацію, м'яч і рахунок обирає той, хто створює кімнату.</p>
           <button class="link" data-go="main">← Назад</button>
         </div>
 
@@ -82,16 +83,86 @@
           <div id="room-box" class="hidden">
             <p>Код кімнати:</p>
             <div id="room-code" class="code">-----</div>
-            <button class="big" id="btn-copy">📋 Копіювати посилання</button>
+            <button class="big" id="btn-copy">📋 Копіювати посилання-виклик</button>
             <button class="big hidden" id="btn-share">📤 Поділитися</button>
           </div>
           <p id="wait-status" class="note"></p>
           <button class="link" id="btn-cancel">← Скасувати</button>
         </div>
+
+        <div class="screen hidden" data-screen="invite">
+          <h2 id="invite-title">Вас викликають на гру!</h2>
+          <div id="invite-info" class="invite-info"></div>
+          <button class="big accent" id="btn-accept">✅ Прийняти</button>
+          <button class="link" id="btn-decline">Відхилити</button>
+        </div>
+
+        <!-- турнір: налаштування -->
+        <div class="screen hidden" data-screen="tsetup">
+          <h2>Турнір</h2>
+          <div class="seg" id="t-mode">
+            <button data-v="local" class="on">На одному пристрої</button>
+            <button data-v="online">По мережі</button>
+          </div>
+          <div class="settings">
+            <label>Кіл <select id="t-rounds"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+              <span class="note">(кожен з кожним — стільки разів)</span></label>
+          </div>
+          <div id="t-local">
+            <div id="t-players" class="tplayers"></div>
+            <div class="row2btn">
+              <button class="big" id="t-add">➕ Гравець</button>
+              <button class="big" id="t-add-bot">➕ Бот</button>
+            </div>
+            <button class="big accent" id="t-start">🏆 Почати турнір</button>
+          </div>
+          <div id="t-online" class="hidden">
+            <p class="note">Ви створюєте турнір і надсилаєте посилання друзям. Коли зберуться 3–8 учасників — тисніть «Почати». Можна додати ботів. Матчі між різними парами йдуть одночасно.</p>
+            <button class="big accent" id="t-host">🌐 Створити мережевий турнір</button>
+          </div>
+          <p class="note">Локація, м'яч і довжина матчу — з головного меню.</p>
+          <button class="link" data-go="main">← Назад</button>
+        </div>
+
+        <!-- турнір: лобі мережевого -->
+        <div class="screen hidden" data-screen="tlobby">
+          <h2 id="tl-title">Мережевий турнір</h2>
+          <div id="tl-code-box">
+            <div id="tl-code" class="code">-----</div>
+            <button class="big" id="tl-copy">📋 Копіювати запрошення</button>
+          </div>
+          <div id="tl-players" class="tplayers"></div>
+          <div id="tl-host-ctrl">
+            <button class="big" id="tl-add-bot">➕ Додати бота</button>
+            <button class="big accent" id="tl-start">🏆 Почати турнір</button>
+          </div>
+          <p id="tl-status" class="note"></p>
+          <button class="link" id="tl-leave">← Вийти</button>
+        </div>
+
+        <!-- турнір: таблиця -->
+        <div class="screen hidden" data-screen="ttable">
+          <h2 id="tt-title">Турнірна таблиця</h2>
+          <div id="tt-table"></div>
+          <div id="tt-next" class="tnext"></div>
+          <details class="help" id="tt-matches-box">
+            <summary>Усі матчі</summary>
+            <div id="tt-matches"></div>
+          </details>
+          <button class="link" id="tt-leave">← Вийти з турніру</button>
+        </div>
       </div>
     </div>
 
-    <!-- Пауза / повідомлення -->
+    <!-- редактор вигляду -->
+    <div id="editor" class="overlay hidden">
+      <div class="panel wide">
+        <h2 id="editor-title">Вигляд</h2>
+        <div id="editor-content"></div>
+        <button class="big accent" id="editor-done">✔ Готово</button>
+      </div>
+    </div>
+
     <div id="pause" class="overlay hidden">
       <div class="panel small">
         <h2 id="pause-title">Пауза</h2>

@@ -186,3 +186,79 @@ kbd {
   z-index: 6;
   pointer-events: none;
 }
+
+/* ---------- v2 ---------- */
+.panel.wide { width: min(560px, 100%); }
+button.accent { background: #c7621f; }
+button.accent:hover { background: #dc7330; }
+button.mini { padding: 4px 9px; font-size: 14px; border-radius: 8px; }
+.row2btn { display: flex; gap: 8px; }
+.row2btn button.big { flex: 1; font-size: 15px; }
+.settings { display: grid; gap: 8px; margin: 14px 0 6px; color: var(--muted); text-align: left; }
+.settings label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings select { flex: 0 1 auto; }
+
+.seg { display: flex; background: #0f1528; border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 8px; }
+.seg button { flex: 1; padding: 9px; background: transparent; border-radius: 9px; }
+.seg button.on { background: var(--btn-hover); }
+
+.editor { text-align: left; }
+.editor canvas.preview { width: 100%; height: auto; border-radius: 12px; display: block; margin-bottom: 10px; touch-action: none; }
+.editor h3 { margin: 14px 0 6px; font-size: 16px; }
+.field { margin: 10px 0; }
+.field > span { display: block; color: var(--muted); font-size: 13px; margin-bottom: 5px; }
+.name-input { width: 100%; font-size: 17px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); padding: 0; }
+.sw.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.swatches input[type=color] { width: 34px; height: 30px; padding: 0 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 6px 10px; font-size: 13px; border-radius: 16px; }
+.chip.on { background: var(--accent); color: #1b1b1b; }
+.emojis { display: flex; flex-wrap: wrap; gap: 5px; }
+.emo { width: 38px; height: 38px; font-size: 20px; padding: 0; border-radius: 10px; }
+.emo.on { background: var(--accent); }
+.react-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; margin: 6px 0; color: var(--muted); font-size: 14px; }
+.react-row select { min-width: 0; }
+.row3 { display: flex; gap: 10px; flex-wrap: wrap; }
+.color-field { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.color-field input { width: 40px; height: 30px; padding: 0 2px; }
+
+.invite-info { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 6px 0 12px; color: var(--muted); }
+.invite-info b { color: var(--text); }
+
+.tplayers { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.tp { display: flex; align-items: center; gap: 8px; background: #0f1528; border-radius: 10px; padding: 6px 8px; }
+.tp input { flex: 1; min-width: 0; }
+.tp select { max-width: 120px; }
+.tp .who { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb { flex: 0 0 auto; }
+
+table.standings { width: 100%; border-collapse: collapse; font-size: 14px; margin: 6px 0 10px; }
+table.standings th { color: var(--muted); font-weight: 600; padding: 4px; }
+table.standings td { padding: 4px; border-top: 1px solid rgba(255,255,255,0.07); }
+table.standings td.nm { text-align: left; display: flex; align-items: center; gap: 6px; }
+table.standings tr.me td { background: rgba(255,181,71,0.12); }
+.tnext { margin: 8px 0; }
+.tnext .vs { font-size: 18px; font-weight: 700; margin: 6px 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.mlist { font-size: 13px; color: var(--muted); text-align: left; }
+.mlist div { padding: 3px 0; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; gap: 8px; }
+.mlist .live { color: #9cff9c; }
+.champion { font-size: 22px; font-weight: 800; color: var(--accent); margin: 8px 0; }
+
+/* низькі екрани (телефон горизонтально) */
+@media (max-height: 520px) {
+  .overlay { padding: 8px; align-items: flex-start; }
+  .panel { padding: 12px 14px 10px; border-radius: 14px; }
+  h1 { font-size: 22px; }
+  .sub { display: none; }
+  h2 { font-size: 17px; margin: 4px 0 8px; }
+  button.big { padding: 9px 12px; margin: 5px 0; font-size: 15px; }
+  .code { font-size: 32px; }
+  .invite-info { gap: 2px; margin: 2px 0 6px; font-size: 14px; }
+  .panel { width: min(680px, 100%); }
+  [data-screen="main"]:not(.hidden) { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+  [data-screen="main"] > * { grid-column: 1 / -1; }
+  [data-screen="main"] > button.big { grid-column: auto; }
+  .settings { grid-template-columns: 1fr 1fr; }
+}

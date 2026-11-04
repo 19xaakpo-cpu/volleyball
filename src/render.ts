@@ -1,26 +1,40 @@
 import {
-  BALL_R, CROUCH_RX, CROUCH_RY, FAULT_TOUCHES, GROUND, H, MAX_TOUCHES, NET_HALF, NET_TOP, NET_X,
+  BALL_R, CROUCH_RX, CROUCH_RY, FAULT_TOUCHES, GROUND, H, MAX_TOUCHES, NET_X,
   PH_OVER, PH_POINT, PH_SERVE, SACK_RX, SACK_RY, W,
 } from './sim/game.ts';
 import type { GameEvent, GameState } from './sim/game.ts';
+import { reactionById } from './cosmetics.ts';
+import type { GameLook, Reaction } from './cosmetics.ts';
+import { drawBall, drawSack } from './draw.ts';
+import type { Face } from './draw.ts';
+import { SceneRenderer } from './scenes.ts';
 
 export interface DrawInfo {
   names: [string, string];
-  /** чий це пристрій (для підписів "Ви") — -1 якщо обидва локальні */
+  /** чий це пристрій (для підписів "ви") — -1 якщо обидва локальні */
   localSide: number;
   ping?: number;
   stalled?: boolean;
   debug?: string;
   hint?: string;
+  /** фактична сцена (напр. 'metro' під час тривоги в Києві) */
+  scene: string;
+  banner?: string;
+  overText?: string;
 }
 
-interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size: number }
+interface Particle {
+  x: number; y: number; vx: number; vy: number; life: number; max: number;
+  color: string; size: number; kind: 'dot' | 'rect' | 'text'; text?: string; g: number;
+}
 interface Popup { text: string; x: number; y: number; life: number; color: string }
+interface ActiveReaction { r: Reaction; t: number; dur: number }
 
-const COLORS = [
-  { body: '#d9a05b', dark: '#9c6a32', tint: '#e8743b', light: '#f3c98b' },
-  { body: '#c9b07a', dark: '#857247', tint: '#3f8fd8', light: '#ecdcae' },
-];
+const MOOD: Record<string, Face> = {
+  hop: 'happy', dance: 'happy', spin: 'happy', flex: 'happy', fireworks: 'happy',
+  laugh: 'laugh', cool: 'cool', kiss: 'kiss', cry: 'sad', facepalm: 'sad', angry: 'angry',
+  revenge: 'angry', faint: 'dizzy', shrug: 'normal', sweat: 'normal',
+};
 
 export class Renderer {
   private c: HTMLCanvasElement;
@@ -37,15 +51,18 @@ export class Renderer {
   private particles: Particle[] = [];
   private popups: Popup[] = [];
   private shake = 0;
-  private hatch: CanvasPattern | null = null;
   private time = 0;
+  private reactions: (ActiveReaction | null)[] = [null, null];
+  private scenes = new SceneRenderer();
+  private bannerX = 0;
+  look: GameLook;
 
-  constructor(c: HTMLCanvasElement) {
+  constructor(c: HTMLCanvasElement, look: GameLook) {
     this.c = c;
     this.g = c.getContext('2d')!;
+    this.look = look;
     this.resize();
     window.addEventListener('resize', () => this.resize());
-    this.hatch = this.makeHatch();
   }
 
   resize() {
@@ -58,22 +75,15 @@ export class Renderer {
     this.oy = (h - H * this.scale) / 2;
   }
 
-  private makeHatch(): CanvasPattern | null {
-    const p = document.createElement('canvas');
-    p.width = p.height = 8;
-    const g = p.getContext('2d')!;
-    g.strokeStyle = 'rgba(60,35,10,0.18)';
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(0, 8); g.lineTo(8, 0);
-    g.moveTo(-2, 2); g.lineTo(2, -2);
-    g.moveTo(6, 10); g.lineTo(10, 6);
-    g.stroke();
-    g.strokeStyle = 'rgba(255,240,200,0.12)';
-    g.beginPath();
-    g.moveTo(0, 0); g.lineTo(8, 8);
-    g.stroke();
-    return this.g.createPattern(p, 'repeat');
+  reset() {
+    this.reactions = [null, null];
+    this.particles = [];
+    this.popups = [];
+  }
+
+  private react(p: number, id: string, dur: number) {
+    const r = reactionById(id);
+    this.reactions[p] = r.id === 'none' ? null : { r, t: 0, dur };
   }
 
   onEvents(events: GameEvent[], s: GameState, localSide: number) {
@@ -81,8 +91,13 @@ export class Renderer {
       switch (e.type) {
         case 'hit': {
           const n = 6 + Math.min(10, e.speed | 0);
-          for (let i = 0; i < n; i++) this.spark(e.x, e.y, '#fff6d8', 3);
+          for (let i = 0; i < n; i++) this.spark(e.x, e.y, e.pop ? '#bff3ff' : '#fff6d8', 3);
           if (e.speed > 14) this.shake = Math.max(this.shake, 4);
+          break;
+        }
+        case 'dash': {
+          const k = s.players[e.p];
+          for (let i = 0; i < 12; i++) this.spark(k.x - e.dir * 30, GROUND - 4, 'rgba(230,210,170,0.9)', 4, true);
           break;
         }
         case 'floor':
@@ -97,22 +112,67 @@ export class Renderer {
           const x = e.winner === 0 ? W * 0.25 : W * 0.75;
           const mine = localSide === -1 || localSide === e.winner;
           this.popups.push({ text: txt, x, y: 150, life: 70, color: mine ? '#ffd76a' : '#ff8a7a' });
+          const pw = this.look.profiles[e.winner], pl = this.look.profiles[1 - e.winner];
+          this.react(e.winner, pw.winPoint, 78);
+          this.react(1 - e.winner, pl.losePoint, 78);
+          this.scenes.cheer = 1;
           break;
         }
+        case 'over': {
+          const pw = this.look.profiles[e.winner], pl = this.look.profiles[1 - e.winner];
+          this.react(e.winner, pw.winGame, 1e9);
+          this.react(1 - e.winner, pl.loseGame, 1e9);
+          this.scenes.cheer = 1;
+          break;
+        }
+        case 'serve':
+          this.reactions = [null, null];
+          break;
       }
     }
-    void s;
   }
 
   private spark(x: number, y: number, color: string, size: number, up = false) {
     const a = Math.random() * Math.PI * 2;
     const sp = 1 + Math.random() * 4;
     this.particles.push({
-      x, y,
-      vx: Math.cos(a) * sp,
-      vy: up ? -Math.abs(Math.sin(a) * sp) - 1 : Math.sin(a) * sp,
-      life: 0, max: 20 + Math.random() * 20, color, size: size * (0.5 + Math.random()),
+      x, y, vx: Math.cos(a) * sp, vy: up ? -Math.abs(Math.sin(a) * sp) - 1 : Math.sin(a) * sp,
+      life: 0, max: 20 + Math.random() * 20, color, size: size * (0.5 + Math.random()), kind: 'dot', g: 0.15,
     });
+  }
+
+  private fx(kind: string, x: number, top: number, face: number, t: number) {
+    const R = Math.random;
+    switch (kind) {
+      case 'confetti':
+        if (t % 3 === 0) for (let i = 0; i < 3; i++) this.particles.push({ x: x + (R() - 0.5) * 60, y: top - 10, vx: (R() - 0.5) * 5, vy: -3 - R() * 4, life: 0, max: 60, color: ['#ff5a4f', '#ffd76a', '#58b7ff', '#7bdc6b', '#e85a9b'][(R() * 5) | 0], size: 3 + R() * 2, kind: 'rect', g: 0.12 });
+        break;
+      case 'fireworks':
+        if (t % 18 === 0) {
+          const cx = x + (R() - 0.5) * 160, cy = top - 80 - R() * 80;
+          const col = ['#ff5a4f', '#ffd76a', '#58b7ff', '#7bdc6b', '#e85a9b'][(R() * 5) | 0];
+          for (let i = 0; i < 26; i++) {
+            const a = (i / 26) * Math.PI * 2;
+            this.particles.push({ x: cx, y: cy, vx: Math.cos(a) * 3.5, vy: Math.sin(a) * 3.5, life: 0, max: 45, color: col, size: 2.5, kind: 'dot', g: 0.05 });
+          }
+        }
+        break;
+      case 'tears':
+        if (t % 4 === 0) for (const s of [-1, 1]) this.particles.push({ x: x + face * 18 + s * 11, y: top + 30, vx: s * (1 + R()), vy: -1, life: 0, max: 40, color: '#6cc6ff', size: 3, kind: 'dot', g: 0.2 });
+        break;
+      case 'steam':
+        if (t % 5 === 0) this.particles.push({ x: x + (R() - 0.5) * 20, y: top - 12, vx: (R() - 0.5) * 1.5, vy: -1.5 - R(), life: 0, max: 40, color: 'rgba(230,230,230,0.8)', size: 6 + R() * 4, kind: 'dot', g: -0.01 });
+        break;
+      case 'hearts':
+        if (t % 9 === 0) this.particles.push({ x: x + face * 30, y: top + 10, vx: face * (1 + R()), vy: -1.5, life: 0, max: 60, color: '#ff4d6d', size: 18, kind: 'text', text: '❤', g: -0.01 });
+        break;
+      case 'notes':
+        if (t % 10 === 0) this.particles.push({ x: x + (R() - 0.5) * 50, y: top - 5, vx: (R() - 0.5) * 2, vy: -1.2, life: 0, max: 60, color: '#fff', size: 18, kind: 'text', text: R() < 0.5 ? '♪' : '♫', g: -0.005 });
+        break;
+      case 'sweat':
+        if (t % 14 === 0) this.particles.push({ x: x - face * 30, y: top + 15, vx: -face * 0.5, vy: 0, life: 0, max: 35, color: '#9fe0ff', size: 3.5, kind: 'dot', g: 0.15 });
+        break;
+    }
   }
 
   draw(s: GameState, info: DrawInfo, dt: number) {
@@ -130,110 +190,72 @@ export class Renderer {
       this.shake *= 0.85;
     }
     g.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale, this.dpr * (this.ox + sx * this.scale), this.dpr * (this.oy + sy * this.scale));
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, W, H);
+    g.clip();
 
-    this.drawBackground();
-    // тіні
+    this.scenes.drawBack(g, info.scene, this.dpr * this.scale, this.time);
     for (let p = 0; p < 2; p++) this.shadow(s.players[p].x, s.players[p].y, SACK_RX, 0.28);
-    this.shadow(s.ball.x, s.ball.y + BALL_R, BALL_R * 0.9, 0.22);
-    this.drawNet();
-    for (let p = 0; p < 2; p++) this.drawSack(s, p);
-    this.drawBall(s, dt);
+    // тінь м'яча — завжди на підлозі, навіть коли м'яч над екраном
+    this.shadow(s.ball.x, s.ball.y + BALL_R, BALL_R * 0.9, 0.3);
+    this.scenes.drawNet(g, info.scene === 'metro' && this.look.location === 'kyiv' ? 'metro' : info.scene, s.net);
+    for (let p = 0; p < 2; p++) this.drawPlayer(s, p);
+    drawBall(g, this.look.ball, s.ball.x, s.ball.y, BALL_R, (this.ballAngle += (s.ball.vx / BALL_R) * dt * 30));
     this.drawParticles();
+    if (s.ball.y < -BALL_R) this.offscreenMarker(s);
+    if (info.banner) this.drawBanner(info.banner);
     this.drawHud(s, info);
+    g.restore();
   }
 
-  private drawBackground() {
+  private offscreenMarker(s: GameState) {
     const g = this.g;
-    const sky = g.createLinearGradient(0, 0, 0, GROUND);
-    sky.addColorStop(0, '#2a3a74');
-    sky.addColorStop(0.55, '#c86b78');
-    sky.addColorStop(1, '#f7b26a');
-    g.fillStyle = sky;
-    g.fillRect(0, 0, W, GROUND);
-    // сонце
-    const sun = g.createRadialGradient(W * 0.5, GROUND - 40, 10, W * 0.5, GROUND - 40, 160);
-    sun.addColorStop(0, 'rgba(255,230,160,0.95)');
-    sun.addColorStop(0.35, 'rgba(255,200,120,0.5)');
-    sun.addColorStop(1, 'rgba(255,180,100,0)');
-    g.fillStyle = sun;
-    g.fillRect(0, 0, W, GROUND);
-    // пагорби
-    g.fillStyle = 'rgba(70,45,90,0.55)';
+    const x = Math.max(20, Math.min(W - 20, s.ball.x));
+    const h = Math.round(-s.ball.y / 10);
+    g.fillStyle = 'rgba(255,255,255,0.9)';
     g.beginPath();
-    g.moveTo(0, GROUND);
-    for (let x = 0; x <= W; x += 40) g.lineTo(x, GROUND - 60 - Math.sin(x * 0.008) * 30 - Math.sin(x * 0.021) * 12);
-    g.lineTo(W, GROUND);
+    g.moveTo(x, 4); g.lineTo(x - 9, 18); g.lineTo(x + 9, 18);
+    g.closePath();
     g.fill();
-    g.fillStyle = 'rgba(50,30,70,0.6)';
+    drawBall(g, this.look.ball, x, 32, 9, this.ballAngle);
+    this.text(`↑${h}`, x, 52, 12, '#fff', 'center', 700);
+  }
+
+  private drawBanner(text: string) {
+    const g = this.g;
+    g.fillStyle = 'rgba(160,20,20,0.85)';
+    g.fillRect(0, H - 30, W, 26);
+    g.save();
     g.beginPath();
-    g.moveTo(0, GROUND);
-    for (let x = 0; x <= W; x += 30) g.lineTo(x, GROUND - 25 - Math.sin(x * 0.013 + 2) * 14);
-    g.lineTo(W, GROUND);
-    g.fill();
-    // пісок
-    const sand = g.createLinearGradient(0, GROUND, 0, H);
-    sand.addColorStop(0, '#f0cf8e');
-    sand.addColorStop(1, '#c99a5b');
-    g.fillStyle = sand;
-    g.fillRect(0, GROUND, W, H - GROUND);
-    g.fillStyle = 'rgba(255,255,255,0.55)';
-    g.fillRect(0, GROUND, W, 3);
-    // межі (стіни)
-    g.fillStyle = 'rgba(255,255,255,0.08)';
-    g.fillRect(0, 0, 3, GROUND);
-    g.fillRect(W - 3, 0, 3, GROUND);
+    g.rect(0, H - 30, W, 26);
+    g.clip();
+    g.font = '700 15px system-ui, sans-serif';
+    const tw = g.measureText(text).width + 80;
+    this.bannerX -= 1.2;
+    if (this.bannerX < -tw) this.bannerX += tw;
+    g.textBaseline = 'middle';
+    g.textAlign = 'left';
+    g.fillStyle = '#fff';
+    for (let x = this.bannerX; x < W; x += tw) g.fillText(text, x, H - 17);
+    g.restore();
   }
 
   private shadow(x: number, y: number, r: number, a: number) {
     const g = this.g;
     const h = Math.max(0, GROUND - y);
-    const k = Math.max(0.3, 1 - h / 400);
-    g.fillStyle = `rgba(60,30,10,${a * k})`;
+    const k = Math.max(0.25, 1 - h / 700);
+    g.fillStyle = `rgba(40,20,10,${a * k})`;
     g.beginPath();
     g.ellipse(x, GROUND + 4, r * k, 6 * k, 0, 0, Math.PI * 2);
     g.fill();
   }
 
-  private drawNet() {
-    const g = this.g;
-    const top = NET_TOP;
-    // стовп
-    g.fillStyle = '#3b2f2a';
-    g.fillRect(NET_X - 3, top - 4, 6, GROUND - top + 4);
-    // сітка
-    g.save();
-    g.beginPath();
-    g.rect(NET_X - NET_HALF, top + 10, NET_HALF * 2, GROUND - top - 10);
-    g.clip();
-    g.fillStyle = 'rgba(255,255,255,0.12)';
-    g.fillRect(NET_X - NET_HALF, top, NET_HALF * 2, GROUND - top);
-    g.strokeStyle = 'rgba(255,255,255,0.65)';
-    g.lineWidth = 1;
-    g.beginPath();
-    for (let y = top + 10; y < GROUND; y += 8) {
-      g.moveTo(NET_X - NET_HALF, y);
-      g.lineTo(NET_X + NET_HALF, y + 4);
-    }
-    g.stroke();
-    g.restore();
-    // верхній край
-    g.fillStyle = '#ffffff';
-    g.beginPath();
-    g.arc(NET_X, top + NET_HALF, NET_HALF, Math.PI, 0);
-    g.lineTo(NET_X + NET_HALF, top + 12);
-    g.lineTo(NET_X - NET_HALF, top + 12);
-    g.fill();
-    g.fillStyle = '#e8463c';
-    g.fillRect(NET_X - NET_HALF, top + 8, NET_HALF * 2, 4);
-  }
-
-  private drawSack(s: GameState, p: number) {
+  private drawPlayer(s: GameState, p: number) {
     const g = this.g;
     const k = s.players[p];
-    const col = COLORS[p];
-    // плавна анімація присідання і "сплющення" при приземленні
     const target = k.crouch ? 1 : 0;
-    this.crouchVis[p] += (target - this.crouchVis[p]) * 0.45;
+    this.crouchVis[p] += (target - this.crouchVis[p]) * (k.recover > 0 ? 0.12 : 0.45);
     if (this.prevVy[p] > 6 && k.vy === 0) this.squash[p] = Math.min(1, this.prevVy[p] / 18);
     this.prevVy[p] = k.vy;
     this.squash[p] *= 0.8;
@@ -242,148 +264,67 @@ export class Renderer {
     let ry = SACK_RY + (CROUCH_RY - SACK_RY) * c;
     rx *= 1 + this.squash[p] * 0.12;
     ry *= 1 - this.squash[p] * 0.15;
-    // у польоті трохи витягуємо
     if (k.vy < -2) { ry *= 1.06; rx *= 0.96; }
-    const x = k.x, y = k.y;
-
-    g.save();
-    // тіло
-    g.beginPath();
-    g.moveTo(x - rx, y);
-    g.ellipse(x, y, rx, ry, 0, Math.PI, 0);
-    g.quadraticCurveTo(x + rx * 0.5, y + 5, x, y + 3);
-    g.quadraticCurveTo(x - rx * 0.5, y + 5, x - rx, y);
-    g.closePath();
-    const grad = g.createLinearGradient(x - rx, y - ry, x + rx * 0.6, y);
-    grad.addColorStop(0, col.light);
-    grad.addColorStop(0.5, col.body);
-    grad.addColorStop(1, col.dark);
-    g.fillStyle = grad;
-    g.fill();
-    g.save();
-    g.clip();
-    if (this.hatch) {
-      g.fillStyle = this.hatch;
-      g.fillRect(x - rx - 2, y - ry - 2, rx * 2 + 4, ry + 10);
-    }
-    // кольорова смуга-номер
-    g.fillStyle = col.tint;
-    g.globalAlpha = 0.85;
-    g.fillRect(x - rx, y - ry * 0.32, rx * 2, ry * 0.16);
-    g.globalAlpha = 1;
-    g.restore();
-    g.lineWidth = 2.5;
-    g.strokeStyle = col.dark;
-    g.stroke();
-    // шов
-    g.setLineDash([5, 5]);
-    g.lineWidth = 1.5;
-    g.strokeStyle = 'rgba(80,45,15,0.55)';
-    g.beginPath();
-    g.ellipse(x, y, rx * 0.82, ry * 0.82, 0, Math.PI * 1.08, Math.PI * 1.92);
-    g.stroke();
-    g.setLineDash([]);
-    // зав'язаний чубчик зверху
-    const tx = x, ty = y - ry;
-    g.fillStyle = col.body;
-    g.strokeStyle = col.dark;
-    g.lineWidth = 2;
-    g.beginPath();
-    g.moveTo(tx - 4, ty + 3);
-    g.quadraticCurveTo(tx - 14, ty - 12 - (1 - c) * 2, tx - 9, ty - 16);
-    g.quadraticCurveTo(tx - 2, ty - 8, tx, ty - 3);
-    g.quadraticCurveTo(tx + 2, ty - 8, tx + 9, ty - 16);
-    g.quadraticCurveTo(tx + 14, ty - 12, tx + 4, ty + 3);
-    g.closePath();
-    g.fill();
-    g.stroke();
-    g.fillStyle = col.tint;
-    g.fillRect(tx - 6, ty - 2, 12, 5);
-
-    // очі дивляться на м'яч
+    if (k.dash > 0) { rx *= 1.12; ry *= 0.9; }
     const face = p === 0 ? 1 : -1;
-    const ex = x + face * rx * 0.32;
-    const ey = y - ry * 0.58;
-    const bx = s.ball.x - ex, by = s.ball.y - ey;
-    const bl = Math.hypot(bx, by) || 1;
-    this.blink[p] -= 1;
-    if (this.blink[p] < -200 - Math.random() * 300) this.blink[p] = 8;
-    const open = this.blink[p] > 0 ? 0.15 : 1;
-    for (const dx of [-11, 11]) {
-      const cx = ex + dx, cy = ey;
-      g.fillStyle = '#fffdf6';
-      g.beginPath();
-      g.ellipse(cx, cy, 8, 9 * open, 0, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = 'rgba(60,30,10,0.6)';
-      g.lineWidth = 1.2;
-      g.stroke();
-      if (open > 0.5) {
-        g.fillStyle = '#23180f';
+
+    let mood: Face = 'normal';
+    let tint: string | undefined;
+    let dx = 0, dy = 0, rot = 0, scx = 1, scy = 1;
+    const ar = this.reactions[p];
+    if (ar) {
+      ar.t++;
+      if (ar.t > ar.dur) this.reactions[p] = null;
+      const t = ar.t;
+      mood = MOOD[ar.r.id] ?? 'normal';
+      if (ar.r.id === 'angry' || ar.r.id === 'revenge') tint = 'rgba(255,40,20,0.22)';
+      switch (ar.r.anim) {
+        case 'hop': dy = -Math.abs(Math.sin(t * 0.2)) * 26; break;
+        case 'wiggle': rot = Math.sin(t * 0.35) * 0.22; dx = Math.sin(t * 0.35) * 6; break;
+        case 'spin': rot = (t * 0.25) % (Math.PI * 2); break;
+        case 'shake': dx = Math.sin(t * 1.6) * 4; break;
+        case 'flat': scy = Math.max(0.45, 1 - t * 0.04); scx = 1 + (1 - scy) * 0.6; break;
+        case 'droop': scy = 0.86; scx = 1.06; rot = face * -0.08; break;
+        case 'puff': { const q = 1 + Math.abs(Math.sin(t * 0.15)) * 0.12; scx = q; scy = q; break; }
+      }
+      this.fx(ar.r.fx, k.x, k.y - ry, face, t);
+    } else {
+      this.blink[p] -= 1;
+      if (this.blink[p] < -200 - Math.random() * 300) this.blink[p] = 8;
+      if (this.blink[p] > 0) mood = 'blink';
+      if (s.phase === PH_POINT && s.lastPointBy !== p) mood = 'sad';
+    }
+
+    g.save();
+    g.translate(k.x + dx, k.y + dy);
+    if (rot) { g.translate(0, -ry / 2); g.rotate(rot); g.translate(0, ry / 2); }
+    g.scale(scx, scy);
+    drawSack(g, this.look.profiles[p], 0, 0, rx, ry, {
+      face, lookX: s.ball.x - (k.x + dx), lookY: s.ball.y - (k.y + dy), mood, tint,
+    });
+    g.restore();
+
+    // бульбашка з реакцією
+    if (ar && (ar.t < 75 || ar.dur > 1e6)) {
+      const label = `${ar.r.emoji} ${ar.r.text}`.trim();
+      if (label) {
+        const by = k.y + dy - ry * scy - 46;
+        g.font = '700 16px system-ui, sans-serif';
+        const tw = g.measureText(label).width + 22;
+        const bx = Math.max(tw / 2 + 4, Math.min(W - tw / 2 - 4, k.x));
+        g.fillStyle = 'rgba(255,255,255,0.94)';
         g.beginPath();
-        g.arc(cx + (bx / bl) * 3.5, cy + (by / bl) * 4, 4, 0, Math.PI * 2);
+        g.roundRect(bx - tw / 2, by - 15, tw, 30, 14);
         g.fill();
-        g.fillStyle = '#fff';
         g.beginPath();
-        g.arc(cx + (bx / bl) * 3.5 - 1.3, cy + (by / bl) * 4 - 1.5, 1.3, 0, Math.PI * 2);
+        g.moveTo(k.x - 6, by + 14); g.lineTo(k.x, by + 24); g.lineTo(k.x + 6, by + 14);
         g.fill();
+        g.fillStyle = '#222';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(label, bx, by + 1);
       }
     }
-    // рот
-    g.strokeStyle = 'rgba(60,30,10,0.75)';
-    g.lineWidth = 2;
-    g.beginPath();
-    const my = ey + 15;
-    if (s.phase === PH_OVER && s.winner === p) g.arc(ex, my - 3, 7, 0.15 * Math.PI, 0.85 * Math.PI);
-    else if (s.phase === PH_POINT && s.lastPointBy !== p) g.arc(ex, my + 4, 5, 1.15 * Math.PI, 1.85 * Math.PI);
-    else { g.moveTo(ex - 5, my); g.quadraticCurveTo(ex, my + 3, ex + 5, my); }
-    g.stroke();
-    g.restore();
-  }
-
-  private drawBall(s: GameState, dt: number) {
-    const g = this.g;
-    const b = s.ball;
-    this.ballAngle += (b.vx / BALL_R) * dt * 60 * 0.5;
-    g.save();
-    g.translate(b.x, b.y);
-    g.rotate(this.ballAngle);
-    const r = BALL_R;
-    g.beginPath();
-    g.arc(0, 0, r, 0, Math.PI * 2);
-    g.fillStyle = '#fbfbf6';
-    g.fill();
-    g.save();
-    g.clip();
-    g.fillStyle = '#f4c430';
-    g.beginPath();
-    g.ellipse(-r * 0.2, -r * 0.9, r * 1.1, r * 0.55, 0.3, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = '#2f6fd6';
-    g.beginPath();
-    g.ellipse(r * 0.6, r * 0.6, r * 0.9, r * 0.45, -0.9, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = 'rgba(40,40,60,0.45)';
-    g.lineWidth = 1.4;
-    g.beginPath();
-    g.arc(-r * 1.2, r * 0.2, r * 1.3, -0.6, 0.6);
-    g.moveTo(r * 1.4, -r * 0.4);
-    g.arc(r * 0.2, -r * 1.2, r * 1.3, 0.4, 1.6);
-    g.stroke();
-    g.restore();
-    g.rotate(-this.ballAngle);
-    const hl = g.createRadialGradient(-r * 0.4, -r * 0.45, 1, 0, 0, r);
-    hl.addColorStop(0, 'rgba(255,255,255,0.6)');
-    hl.addColorStop(0.5, 'rgba(255,255,255,0)');
-    hl.addColorStop(1, 'rgba(0,0,30,0.25)');
-    g.fillStyle = hl;
-    g.beginPath();
-    g.arc(0, 0, r, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = 'rgba(30,30,50,0.6)';
-    g.lineWidth = 1.5;
-    g.stroke();
-    g.restore();
   }
 
   private drawParticles() {
@@ -393,15 +334,25 @@ export class Renderer {
       p.life++;
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.15;
-      p.vx *= 0.96;
+      p.vy += p.g;
+      p.vx *= 0.97;
       if (p.life > p.max) { this.particles.splice(i, 1); continue; }
       g.globalAlpha = 1 - p.life / p.max;
       g.fillStyle = p.color;
-      g.beginPath();
-      g.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      g.fill();
+      if (p.kind === 'rect') {
+        g.fillRect(p.x, p.y, p.size, p.size * 1.6);
+      } else if (p.kind === 'text') {
+        g.font = `${p.size}px system-ui, sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(p.text!, p.x, p.y);
+      } else {
+        g.beginPath();
+        g.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        g.fill();
+      }
     }
+    if (this.particles.length > 600) this.particles.splice(0, this.particles.length - 600);
     g.globalAlpha = 1;
   }
 
@@ -420,14 +371,17 @@ export class Renderer {
 
   private drawHud(s: GameState, info: DrawInfo) {
     const g = this.g;
-    // рахунок
-    this.text(String(s.score[0]), NET_X - 60, 52, 54, COLORS[0].tint === '#e8743b' ? '#ffd3a8' : '#fff');
-    this.text(String(s.score[1]), NET_X + 60, 52, 54, '#bfe0ff');
+    const [p0, p1] = this.look.profiles;
+    this.text(String(s.score[0]), NET_X - 60, 52, 54, '#fff');
+    this.text(String(s.score[1]), NET_X + 60, 52, 54, '#fff');
     this.text(':', NET_X, 48, 40, 'rgba(255,255,255,0.8)');
-    const nm = (p: number) => info.localSide === p ? `${info.names[p]} (ви)` : info.names[p];
-    this.text(nm(0), NET_X - 90, 92, 16, '#ffe2c4', 'right', 700);
-    this.text(nm(1), NET_X + 90, 92, 16, '#d7ebff', 'left', 700);
-    // лічильник торкань
+    g.fillStyle = p0.color;
+    g.fillRect(NET_X - 104, 76, 88, 4);
+    g.fillStyle = p1.color;
+    g.fillRect(NET_X + 16, 76, 88, 4);
+    const nm = (p: number) => (info.localSide === p ? `${info.names[p]} (ви)` : info.names[p]);
+    this.text(nm(0), NET_X - 90, 96, 16, '#fff', 'right', 700);
+    this.text(nm(1), NET_X + 90, 96, 16, '#fff', 'left', 700);
     for (let p = 0; p < 2; p++) {
       const n = s.touchSide === p ? s.touches : 0;
       const cx = p === 0 ? W * 0.25 : W * 0.75;
@@ -435,14 +389,13 @@ export class Renderer {
         const x = cx + (i - 1) * 20;
         g.beginPath();
         g.arc(x, 28, 6, 0, Math.PI * 2);
-        g.fillStyle = i < n ? (n >= MAX_TOUCHES ? '#ff5a4f' : '#ffd76a') : 'rgba(255,255,255,0.18)';
+        g.fillStyle = i < n ? (n >= MAX_TOUCHES ? '#ff5a4f' : '#ffd76a') : 'rgba(255,255,255,0.22)';
         g.fill();
         g.lineWidth = 1.5;
         g.strokeStyle = 'rgba(20,15,40,0.5)';
         g.stroke();
       }
     }
-    // спливаючі написи
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const pp = this.popups[i];
       pp.life--;
@@ -452,23 +405,21 @@ export class Renderer {
       this.text(pp.text, pp.x, pp.y, 30, pp.color);
       g.globalAlpha = 1;
     }
-    // повідомлення фаз
     if (s.phase === PH_SERVE && s.timer > 0) {
-      const who = s.server;
-      this.text('Подача', who === 0 ? W * 0.25 : W * 0.75, 120, 22, 'rgba(255,255,255,0.85)', 'center', 700);
+      this.text('Подача', s.server === 0 ? W * 0.25 : W * 0.75, 125, 22, 'rgba(255,255,255,0.9)', 'center', 700);
     }
     if (s.phase === PH_OVER) {
       g.fillStyle = 'rgba(15,12,35,0.45)';
-      g.fillRect(0, 150, W, 150);
+      g.fillRect(0, 140, W, 120);
       const winnerName = info.localSide === -1 ? `Переміг: ${info.names[s.winner]}` : info.localSide === s.winner ? 'Перемога! 🎉' : 'Поразка';
-      this.text(winnerName, W / 2, 195, 44, '#ffd76a');
+      this.text(winnerName, W / 2, 180, 42, '#ffd76a');
       if (s.timer === 0) {
-        const r0 = s.ready[0] ? '✔' : '…', r1 = s.ready[1] ? '✔' : '…';
-        this.text(`Стрибок — зіграти ще   ${info.names[0]} ${r0}   ${info.names[1]} ${r1}`, W / 2, 255, 18, '#fff', 'center', 700);
+        const t = info.overText ?? `Стрибок — зіграти ще   ${info.names[0]} ${s.ready[0] ? '✔' : '…'}   ${info.names[1]} ${s.ready[1] ? '✔' : '…'}`;
+        this.text(t, W / 2, 232, 18, '#fff', 'center', 700);
       }
     }
     if (info.stalled) this.text('Очікування суперника…', W / 2, H / 2 - 40, 24, '#fff', 'center', 700);
-    if (info.hint) this.text(info.hint, W / 2, H - 22, 15, 'rgba(255,255,255,0.85)', 'center', 600);
+    if (info.hint) this.text(info.hint, W / 2, H - 22, 15, 'rgba(255,255,255,0.9)', 'center', 600);
     if (info.ping !== undefined) {
       const pc = info.ping < 80 ? '#9cff9c' : info.ping < 160 ? '#ffe28a' : '#ff9c8a';
       this.text(`пінг ${Math.round(info.ping)} мс`, W - 12, 20, 14, pc, 'right', 600);

@@ -1,12 +1,12 @@
-// З'єднання двох браузерів напряму через WebRTC (PeerJS).
-// Сервер PeerJS потрібен лише для того, щоб гравці знайшли один одного;
-// ігрові дані йдуть напряму між браузерами.
+// З'єднання браузерів напряму через WebRTC (PeerJS).
+// Сервер PeerJS потрібен лише щоб гравці знайшли один одного; ігрові дані йдуть напряму.
 
 import Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 
-const PREFIX = 'mishkobol-v1-';
+export const PREFIX = 'mishkobol-v2-';
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const DEBUG = typeof location !== 'undefined' && location.search.includes('debug');
 
 export function randomCode(): string {
   let s = '';
@@ -25,24 +25,16 @@ export interface Link {
   close(): void;
   onMessage: (msg: any) => void;
   onClose: (reason: string) => void;
+  readonly meta: any;
 }
 
-export interface ConnectCallbacks {
-  onStatus(text: string): void;
-  onRoom?(code: string): void;
-  onLink(link: Link): void;
-  onError(text: string): void;
-}
-
-const DEBUG = typeof location !== 'undefined' && location.search.includes('debug');
-
-function wrap(peer: Peer, conn: DataConnection): Link {
+function wrap(conn: DataConnection): Link {
   let closed = false;
-  if (DEBUG) console.log('[net] link', conn.serialization, conn.reliable, conn.open);
   const link: Link = {
+    meta: conn.metadata,
     send(msg) {
       if (!closed && conn.open) {
-        if (DEBUG && (msg as any)?.t !== 'in') console.log('[net] send', JSON.stringify(msg));
+        if (DEBUG && (msg as any)?.t !== 'in') console.log('[net] send', JSON.stringify(msg).slice(0, 200));
         try { conn.send(msg); } catch (e) { if (DEBUG) console.log('[net] send err', e); }
       }
     },
@@ -50,116 +42,134 @@ function wrap(peer: Peer, conn: DataConnection): Link {
       if (closed) return;
       closed = true;
       try { conn.close(); } catch { /* ignore */ }
-      setTimeout(() => peer.destroy(), 200);
     },
     onMessage: () => {},
     onClose: () => {},
   };
   conn.on('data', (d: any) => {
-    if (DEBUG && d?.t !== 'in') console.log('[net] recv', JSON.stringify(d));
+    if (DEBUG && d?.t !== 'in') console.log('[net] recv', JSON.stringify(d).slice(0, 200));
     link.onMessage(d);
   });
-  conn.on('close', () => {
-    if (!closed) { closed = true; link.onClose('Суперник від\'єднався'); peer.destroy(); }
-  });
-  conn.on('error', () => {
-    if (!closed) { closed = true; link.onClose('Помилка з\'єднання'); peer.destroy(); }
-  });
-  peer.on('disconnected', () => {
-    // втрачено зв'язок лише із сервером-"сватом" — пряме з'єднання ще працює
+  const lost = (why: string) => {
+    if (!closed) { closed = true; link.onClose(why); }
+  };
+  conn.on('close', () => lost('Суперник від\'єднався'));
+  conn.on('error', () => lost('Помилка з\'єднання'));
+  // ICE-з'єднання розірвалося (наприклад, зник інтернет)
+  conn.peerConnection?.addEventListener?.('iceconnectionstatechange', () => {
+    const st = conn.peerConnection?.iceConnectionState;
+    if (st === 'failed' || st === 'closed') lost('З\'єднання розірвано');
   });
   return link;
 }
 
-function errText(type: string): string {
+export function errText(type: string): string {
   switch (type) {
-    case 'peer-unavailable': return 'Кімнату не знайдено. Перевірте код — або суперник закрив гру.';
+    case 'peer-unavailable': return 'Кімнату не знайдено. Перевірте код — або гру вже закрили.';
     case 'network': return 'Немає з\'єднання із сервером. Перевірте інтернет.';
     case 'server-error': return 'Сервер з\'єднань недоступний. Спробуйте за хвилину.';
     case 'browser-incompatible': return 'Цей браузер не підтримує WebRTC.';
     case 'webrtc': return 'Не вдалося встановити пряме з\'єднання (WebRTC).';
+    case 'unavailable-id': return 'Такий код уже зайнятий.';
+    case 'timeout': return 'Не вдалося з\'єднатися за 20 секунд. Можливо, мережа блокує пряме з\'єднання — спробуйте іншу мережу (напр. мобільний інтернет).';
     default: return `Помилка з'єднання (${type}).`;
   }
 }
 
-/** Створює кімнату і чекає суперника. Повертає функцію скасування. */
-export function hostRoom(cb: ConnectCallbacks, attempt = 0): () => void {
-  const code = randomCode();
-  let cancelled = false;
-  let inner: (() => void) | null = null;
-  const peer = new Peer(PREFIX + code, { debug: 0 });
-  let linked = false;
-  cb.onStatus('Підключення до сервера…');
-  peer.on('open', () => {
-    if (cancelled) return;
-    cb.onRoom?.(code);
-    cb.onStatus('Очікуємо суперника. Надішліть йому код або посилання.');
-  });
-  peer.on('connection', (conn) => {
-    if (linked || cancelled) { conn.close(); return; }
-    linked = true;
-    cb.onStatus('Суперник підключається…');
-    const t = setTimeout(() => {
-      if (!conn.open) {
-        linked = false;
-        conn.close();
-        cb.onStatus('Не вдалося з\'єднатися напряму. Очікуємо ще…');
-      }
-    }, 15000);
-    conn.on('open', () => {
-      clearTimeout(t);
-      if (cancelled) return;
-      cb.onLink(wrap(peer, conn));
+/** Учасник мережі: має свій id, приймає вхідні з'єднання і може підключатися до інших. */
+export class PeerNode {
+  readonly peer: Peer;
+  readonly id: string;
+  onConnection: (link: Link) => void = (l) => l.close();
+  onError: (text: string) => void = () => {};
+  private destroyed = false;
+
+  private constructor(peer: Peer, id: string) {
+    this.peer = peer;
+    this.id = id;
+    peer.on('connection', (conn) => {
+      const t = setTimeout(() => { if (!conn.open) conn.close(); }, 20000);
+      conn.on('open', () => {
+        clearTimeout(t);
+        if (!this.destroyed) this.onConnection(wrap(conn));
+      });
     });
-  });
-  peer.on('error', (e: any) => {
-    if (cancelled) return;
-    if (e.type === 'unavailable-id' && attempt < 5) {
-      peer.destroy();
-      inner = hostRoom(cb, attempt + 1);
-      return;
-    }
-    if (linked) return;
-    cb.onError(errText(e.type));
-  });
-  return () => {
-    cancelled = true;
-    inner?.();
-    if (!linked) peer.destroy();
-  };
+    peer.on('error', (e: any) => {
+      if (this.destroyed) return;
+      // помилки конкретного вихідного з'єднання обробляються в connect()
+      if (e.type === 'peer-unavailable') return;
+      this.onError(errText(e.type));
+    });
+    peer.on('disconnected', () => {
+      // втратили зв'язок лише із сервером-"сватом" — пробуємо відновити, прямі з'єднання живуть
+      if (!this.destroyed) setTimeout(() => { try { peer.reconnect(); } catch { /* ignore */ } }, 1000);
+    });
+  }
+
+  /** id === undefined — випадковий id від сервера. */
+  static create(id?: string): Promise<PeerNode> {
+    return new Promise((resolve, reject) => {
+      const peer = id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
+      let done = false;
+      const fail = (e: any) => {
+        if (done) return;
+        done = true;
+        peer.destroy();
+        reject(new Error(e?.type ?? 'network'));
+      };
+      const to = setTimeout(() => fail({ type: 'server-error' }), 15000);
+      peer.once('open', (pid) => {
+        if (done) return;
+        done = true;
+        clearTimeout(to);
+        resolve(new PeerNode(peer, pid));
+      });
+      peer.once('error', fail);
+    });
+  }
+
+  connect(remoteId: string, meta: any, timeoutMs = 20000): Promise<Link> {
+    return new Promise((resolve, reject) => {
+      const conn = this.peer.connect(remoteId, { reliable: false, serialization: 'json', metadata: meta });
+      let done = false;
+      const fin = (err?: string) => {
+        if (done) return;
+        done = true;
+        clearTimeout(to);
+        this.peer.off('error', onErr);
+        if (err) { try { conn.close(); } catch { /* ignore */ } reject(new Error(err)); }
+      };
+      const onErr = (e: any) => {
+        if (e.type === 'peer-unavailable' && String(e.message ?? '').includes(remoteId)) fin('peer-unavailable');
+        else if (e.type === 'peer-unavailable') fin('peer-unavailable');
+      };
+      this.peer.on('error', onErr);
+      const to = setTimeout(() => fin('timeout'), timeoutMs);
+      conn.on('open', () => {
+        if (done) return;
+        fin();
+        resolve(wrap(conn));
+      });
+    });
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    setTimeout(() => this.peer.destroy(), 300);
+  }
 }
 
-export function joinRoom(code: string, cb: ConnectCallbacks): () => void {
-  let cancelled = false;
-  let done = false;
-  const peer = new Peer({ debug: 0 });
-  cb.onStatus('Підключення до сервера…');
-  const timeout = setTimeout(() => {
-    if (!done && !cancelled) {
-      cb.onError('Не вдалося з\'єднатися з суперником за 20 секунд. Можливо, мережа блокує пряме з\'єднання — спробуйте іншу мережу (напр. мобільний інтернет).');
-      peer.destroy();
+/** Створює вузол із кодом кімнати (з повтором, якщо код зайнятий). */
+export async function createRoomNode(): Promise<{ node: PeerNode; code: string }> {
+  for (let i = 0; i < 5; i++) {
+    const code = randomCode();
+    try {
+      const node = await PeerNode.create(PREFIX + code);
+      return { node, code };
+    } catch (e: any) {
+      if (e.message !== 'unavailable-id') throw e;
     }
-  }, 20000);
-  peer.on('open', () => {
-    if (cancelled) return;
-    cb.onStatus('Шукаємо кімнату ' + code + '…');
-    const conn = peer.connect(PREFIX + code, { reliable: false, serialization: 'json' });
-    conn.on('open', () => {
-      if (cancelled) return;
-      done = true;
-      clearTimeout(timeout);
-      cb.onLink(wrap(peer, conn));
-    });
-  });
-  peer.on('error', (e: any) => {
-    if (cancelled || done) return;
-    clearTimeout(timeout);
-    cb.onError(errText(e.type));
-    peer.destroy();
-  });
-  return () => {
-    cancelled = true;
-    clearTimeout(timeout);
-    if (!done) peer.destroy();
-  };
+  }
+  throw new Error('unavailable-id');
 }

@@ -73,5 +73,24 @@ export const sfx = {
     else { tone(440, 0.14, 'triangle', 0.22); tone(330, 0.2, 'triangle', 0.22, 0, 0.12); }
   },
   whistle() { tone(2100, 0.25, 'sine', 0.12, 80); tone(2150, 0.25, 'sine', 0.08, 60); },
+  chime() { [784, 659, 523].forEach((f, i) => tone(f, 0.35, 'sine', 0.22, 0, i * 0.28)); },
+  dash() { noise(0.12, 0.3, 700); tone(180, 0.1, 'sine', 0.15, 120); },
+  cheer() { noise(0.6, 0.12, 1200); },
   win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.25, 0, i * 0.12)); },
 };
+
+/** Озвучити текст (якщо в системі є український голос). */
+export function speak(text: string) {
+  try {
+    if (muted || !('speechSynthesis' in window)) return;
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find((x) => x.lang.toLowerCase().startsWith('uk'));
+    if (!v) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = v;
+    u.lang = v.lang;
+    u.rate = 0.95;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch { /* ignore */ }
+}
