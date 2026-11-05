@@ -6,6 +6,9 @@ import type { Link } from './peer.ts';
 import type { NetMsg } from './rollback.ts';
 
 export const PROTO = 2;
+declare const __SIM_HASH__: string;
+/** відбиток фізики: різні версії гри не повинні грати разом */
+export const SIM_HASH: string = typeof __SIM_HASH__ !== 'undefined' ? __SIM_HASH__ : 'dev';
 
 export interface MatchSetup {
   target: number;
@@ -32,7 +35,7 @@ function delayFor(rtt: number) {
 export function handshakeHost(link: Link, setup: MatchSetup, me: Profile, extra: Record<string, unknown>,
   onStart: (r: HandshakeResult) => void, onFail: (why: string) => void) {
   let started = false;
-  const hello = () => link.send({ t: 'hello', v: PROTO, ...setup, profile: me, ts: performance.now(), ...extra });
+  const hello = () => link.send({ t: 'hello', v: PROTO, sim: SIM_HASH, ...setup, profile: me, ts: performance.now(), ...extra });
   const iv = setInterval(hello, 200);
   hello();
   link.onMessage = (m: any) => {
@@ -62,7 +65,7 @@ export function handshakeGuest(link: Link, me: Profile, onStart: (r: HandshakeRe
   link.onMessage = (m: any) => {
     if (!m || started) return;
     if (m.t === 'hello') {
-      if (m.v !== PROTO) {
+      if (m.v !== PROTO || m.sim !== SIM_HASH) {
         link.send({ t: 'badver' });
         onFail('Різні версії гри. Оновіть сторінку (Ctrl+F5) і спробуйте ще раз.');
         return;

@@ -365,6 +365,7 @@ function tick() {
       r.state = r.session!.state;
       handleEvents(evs, r);
       if (performance.now() - r.session!.stats.lastRecv > 15000) opponentGone('З\'єднання із суперником втрачено.');
+      if (r.session!.stats.desync) opponentGone('Гра розсинхронізувалася — найімовірніше, у вас із суперником різні версії гри. Обом оновіть сторінку (Ctrl+F5 або потягнути вниз на телефоні) і спробуйте ще раз.');
       break;
     }
     case 'netsim': {
