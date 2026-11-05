@@ -26,6 +26,25 @@ export const PATTERNS: { id: string; name: string }[] = [
 
 export const LOGOS = ['', '⭐', '❤️', '🔥', '⚡', '🌻', '🐱', '🐶', '🦊', '💀', '👑', '🍀', '🥔', '🧅', '🌰', '🐝', '🚀', '⚽', '🎯', '☢️', '🍉', '🐸', '🦉', '🇺🇦'];
 
+/** Чим наповнений мішок (видно зверху і висипається при розгромному рахунку). */
+export const FILLINGS: { id: string; name: string; emoji: string }[] = [
+  { id: 'potato', name: 'Картопля', emoji: '🥔' },
+  { id: 'onion', name: 'Цибуля', emoji: '🧅' },
+  { id: 'beet', name: 'Буряк', emoji: '' },
+  { id: 'carrot', name: 'Морква', emoji: '🥕' },
+  { id: 'cabbage', name: 'Капуста', emoji: '🥬' },
+  { id: 'garlic', name: 'Часник', emoji: '🧄' },
+  { id: 'corn', name: 'Кукурудза', emoji: '🌽' },
+  { id: 'pumpkin', name: 'Гарбузи', emoji: '🎃' },
+  { id: 'apple', name: 'Яблука', emoji: '🍎' },
+  { id: 'pear', name: 'Груші', emoji: '🍐' },
+  { id: 'orange', name: 'Апельсини', emoji: '🍊' },
+  { id: 'cherry', name: 'Вишні', emoji: '🍒' },
+  { id: 'nuts', name: 'Каштани', emoji: '🌰' },
+  { id: 'coal', name: 'Вугілля', emoji: '' },
+  { id: 'socks', name: 'Шкарпетки', emoji: '🧦' },
+];
+
 export interface Reaction {
   id: string;
   name: string;
@@ -68,6 +87,7 @@ export interface Profile {
   losePoint: string;
   winGame: string;
   loseGame: string;
+  filling: string;
 }
 
 export function defaultProfile(i: number): Profile {
@@ -85,6 +105,7 @@ export function defaultProfile(i: number): Profile {
     losePoint: 'shrug',
     winGame: 'fireworks',
     loseGame: 'cry',
+    filling: i === 1 ? 'onion' : 'potato',
     ...(presets[i] ?? {}),
   };
 }
@@ -105,6 +126,7 @@ export function randomProfile(name?: string): Profile {
     losePoint: pick(negR),
     winGame: pick(['fireworks', 'hop', 'dance', 'kiss']),
     loseGame: pick(['cry', 'faint', 'revenge', 'facepalm']),
+    filling: pick(FILLINGS).id,
   };
 }
 
@@ -119,6 +141,7 @@ export function botProfile(diff: string, seed = 0): Profile {
   base.losePoint = 'angry';
   base.winGame = 'flex';
   base.loseGame = 'faint';
+  base.filling = diff === 'easy' ? 'potato' : diff === 'normal' ? 'onion' : 'beet';
   return base;
 }
 
@@ -136,6 +159,7 @@ export function sanitizeProfile(p: any, fallback: Profile): Profile {
     losePoint: REACTIONS.some((r) => r.id === p.losePoint) ? p.losePoint : fallback.losePoint,
     winGame: REACTIONS.some((r) => r.id === p.winGame) ? p.winGame : fallback.winGame,
     loseGame: REACTIONS.some((r) => r.id === p.loseGame) ? p.loseGame : fallback.loseGame,
+    filling: FILLINGS.some((f) => f.id === p.filling) ? p.filling : fallback.filling,
   };
 }
 
@@ -177,7 +201,7 @@ export interface BallDesign {
 
 export const BALL_PRESETS: Record<string, { name: string; ball: BallDesign }> = {
   beach: { name: 'Пляжний', ball: { pattern: 'beach', c1: '#fbfbf6', c2: '#ff6f3c', c3: '#2bb3c0', logo: '' } },
-  pro: { name: 'Професійний', ball: { pattern: 'volley', c1: '#fbfbf6', c2: '#1d3f8f', c3: '#f2c230', logo: '' } },
+  pro: { name: 'Професійний', ball: { pattern: 'volley', c1: '#f5c400', c2: '#1d4fa0', c3: '#ffffff', logo: '' } },
   coal: { name: 'Шахтарський', ball: { pattern: 'band', c1: '#2e2e33', c2: '#f39c12', c3: '#2e2e33', logo: '⛏️' } },
   kyiv: { name: 'Київський', ball: { pattern: 'volley', c1: '#ffd500', c2: '#0057b7', c3: '#ffd500', logo: '🌰' } },
   metro: { name: 'Метро', ball: { pattern: 'solid', c1: '#d6262b', c2: '#ffffff', c3: '#d6262b', logo: 'М' } },
@@ -201,7 +225,7 @@ export const LOCATIONS: Location[] = [
   { id: 'beach', name: '🏖️ Пляж', net: { half: 6, cap: 6 }, ball: 'beach', netName: 'волейбольна сітка' },
   { id: 'court', name: '🏟️ Корт із глядачами', net: { half: 5, cap: 5 }, ball: 'pro', netName: 'волейбольна сітка' },
   { id: 'lysychansk', name: '⛏️ Лисичанськ', net: { half: 9, cap: 9 }, ball: 'coal', netName: 'дерев\'яний стовп' },
-  { id: 'kyiv', name: '🏛️ Київ, Банкова', net: { half: 4, cap: 17 }, ball: 'kyiv', netName: 'знак «В\'їзд заборонено»' },
+  { id: 'kyiv', name: '🏙️ Київ, Хрещатик', net: { half: 4, cap: 17 }, ball: 'kyiv', netName: 'знак «Зупинку заборонено»' },
   { id: 'metro', name: '🚇 Метро «Хрещатик»', net: { half: 4, cap: 17 }, ball: 'metro', netName: 'покажчик «М»' },
   { id: 'yard', name: '🏚️ Двір хрущовки', net: { half: 15, cap: 15 }, ball: 'rubber', netName: 'стовпчик із шин' },
 ];

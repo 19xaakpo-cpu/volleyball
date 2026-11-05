@@ -1,10 +1,10 @@
 // Редактори вигляду мішка (профілю) і м'яча — у модальному вікні з живим переглядом.
 
 import {
-  ACCENT_COLORS, BALL_LOGOS, BALL_PATTERNS, LOGOS, PATTERNS, REACTIONS, SACK_COLORS, reactionById,
+  ACCENT_COLORS, BALL_LOGOS, BALL_PATTERNS, FILLINGS, LOGOS, PATTERNS, REACTIONS, SACK_COLORS, reactionById,
 } from '../cosmetics.ts';
 import type { BallDesign, Profile } from '../cosmetics.ts';
-import { drawBall, drawSack } from '../draw.ts';
+import { drawBall, drawFilling, drawSack } from '../draw.ts';
 import type { Face } from '../draw.ts';
 
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
@@ -56,6 +56,23 @@ function emojiGrid(items: string[], get: () => string, set: (v: string) => void)
     wrap.innerHTML = '';
     for (const it of items) {
       wrap.append(el('button', { class: 'emo' + (get() === it ? ' on' : ''), onclick: () => { set(it); render(); } }, it || '∅'));
+    }
+  };
+  render();
+  return wrap;
+}
+
+function fillingGrid(pr: Profile) {
+  const wrap = el('div', { class: 'emojis' });
+  const render = () => {
+    wrap.innerHTML = '';
+    for (const f of FILLINGS) {
+      const c = el('canvas', { width: '56', height: '56' }) as HTMLCanvasElement;
+      c.style.width = c.style.height = '26px';
+      const cg = c.getContext('2d')!;
+      cg.scale(2, 2);
+      drawFilling(cg, f.id, 14, 15, 22);
+      wrap.append(el('button', { class: 'emo' + (pr.filling === f.id ? ' on' : ''), title: f.name, onclick: () => { pr.filling = f.id; render(); } }, c));
     }
   };
   render();
@@ -115,7 +132,8 @@ export function editProfile(pr: Profile, title: string, onDone: () => void) {
     el('div', { class: 'field' }, el('span', {}, 'Другий колір'), swatches(ACCENT_COLORS, () => pr.accent, (c) => { pr.accent = c; })),
     el('div', { class: 'field' }, el('span', {}, 'Візерунок'), chips(PATTERNS, () => pr.pattern, (v) => { pr.pattern = v; })),
     el('div', { class: 'field' }, el('span', {}, 'Лого'), emojiGrid(LOGOS, () => pr.logo, (v) => { pr.logo = v; })),
-    el('h3', {}, 'Реакції'),
+    el('div', { class: 'field' }, el('span', {}, 'З чим мішок'), fillingGrid(pr)),
+    el('h3', {}, 'Реакції (лише рухи; при розгромі начинка висипається)'),
     react('winPoint', 'Виграв очко'),
     react('losePoint', 'Програв очко'),
     react('winGame', 'Виграв гру'),
@@ -156,19 +174,6 @@ export function editProfile(pr: Profile, title: string, onDone: () => void) {
     drawSack(g, pr, 0, 0, 52, 58, { face: 1, lookX: mx - 110, lookY: my - 130, mood,
       tint: r && (r.id === 'angry' || r.id === 'revenge') && previewT < 120 ? 'rgba(255,40,20,0.22)' : undefined });
     g.restore();
-    if (r && previewT < 120 && (r.emoji || r.text)) {
-      g.font = '700 13px system-ui, sans-serif';
-      const label = `${r.emoji} ${r.text}`;
-      const tw = g.measureText(label).width + 16;
-      g.fillStyle = 'rgba(255,255,255,0.95)';
-      g.beginPath();
-      g.roundRect(150, 20, tw, 24, 10);
-      g.fill();
-      g.fillStyle = '#222';
-      g.textAlign = 'left';
-      g.textBaseline = 'middle';
-      g.fillText(label, 158, 32);
-    }
     g.fillStyle = '#fff';
     g.font = '800 15px system-ui, sans-serif';
     g.textAlign = 'center';

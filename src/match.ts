@@ -17,6 +17,7 @@ import { kyivAlert } from './alerts.ts';
 import { $ } from './ui/dom.ts';
 
 const DT = 1000 / 60;
+const DEBUG = location.search.includes('debug');
 
 export interface TourCtx {
   label: string;
@@ -98,7 +99,7 @@ function announceScene(scene: string, prev: string | null) {
     setTimeout(() => speak('Увага! Повітряна тривога. Гра проводиться на станції метро Хрещатик.'), 1000);
   } else if (prev === 'metro' && scene === 'kyiv') {
     sfx.chime();
-    setTimeout(() => speak('Відбій повітряної тривоги. Гра повертається на Банкову.'), 1000);
+    setTimeout(() => speak('Відбій повітряної тривоги. Гра повертається на Хрещатик.'), 1000);
   }
 }
 
@@ -445,6 +446,7 @@ function frame(now: number) {
   }
   if (n === 8) acc = 0;
   renderer.draw(run ? run.state : attract.state, drawInfo(), dt / 1000);
+  if (DEBUG) (window as any).__state = run ? run.state : null;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

@@ -1,6 +1,45 @@
 // Малювання мішка і м'яча (використовується у грі, у редакторі вигляду і в турнірній таблиці).
 
+import { FILLINGS } from './cosmetics.ts';
 import type { BallDesign, Profile } from './cosmetics.ts';
+
+const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+/** Один предмет начинки (овоч, фрукт, вугілля…). */
+export function drawFilling(g: CanvasRenderingContext2D, id: string, x: number, y: number, size: number, rot = 0) {
+  g.save();
+  g.translate(x, y);
+  g.rotate(rot);
+  if (id === 'beet') {
+    g.fillStyle = '#4caf50';
+    for (const a of [-0.45, 0, 0.45]) {
+      g.beginPath(); g.ellipse(Math.sin(a) * size * 0.3, -size * 0.55, size * 0.12, size * 0.32, a, 0, Math.PI * 2); g.fill();
+    }
+    const gr = g.createRadialGradient(-size * 0.15, -size * 0.1, 1, 0, 0, size * 0.45);
+    gr.addColorStop(0, '#b0306a');
+    gr.addColorStop(1, '#5e1236');
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(0, 0, size * 0.42, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#5e1236';
+    g.lineWidth = Math.max(1, size * 0.06);
+    g.beginPath(); g.moveTo(0, size * 0.4); g.lineTo(size * 0.05, size * 0.62); g.stroke();
+  } else if (id === 'coal') {
+    g.fillStyle = '#1d1d22';
+    g.beginPath();
+    g.moveTo(-size * 0.4, size * 0.1); g.lineTo(-size * 0.2, -size * 0.35); g.lineTo(size * 0.25, -size * 0.3);
+    g.lineTo(size * 0.42, size * 0.05); g.lineTo(size * 0.15, size * 0.35); g.lineTo(-size * 0.25, size * 0.32);
+    g.closePath(); g.fill();
+    g.fillStyle = 'rgba(160,170,190,0.45)';
+    g.beginPath(); g.moveTo(-size * 0.15, -size * 0.28); g.lineTo(size * 0.18, -size * 0.24); g.lineTo(0, -size * 0.05); g.fill();
+  } else {
+    const f = FILLINGS.find((x) => x.id === id);
+    g.font = `${size}px ${EMOJI_FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(f?.emoji || '🥔', 0, 0);
+  }
+  g.restore();
+}
 
 export type Face = 'normal' | 'happy' | 'sad' | 'angry' | 'dizzy' | 'cool' | 'laugh' | 'kiss' | 'blink';
 
@@ -164,6 +203,12 @@ function drawPattern(g: CanvasRenderingContext2D, pr: Profile, x: number, y: num
 export function drawSack(g: CanvasRenderingContext2D, pr: Profile, x: number, y: number, rx: number, ry: number, o: SackOpts) {
   const dark = shade(pr.color, -0.38);
   g.save();
+  // начинка визирає з-під зав'язки
+  if (pr.filling) {
+    const sz = Math.max(10, Math.min(16, ry * 0.28));
+    drawFilling(g, pr.filling, x - 12, y - ry - 1, sz, -0.4);
+    drawFilling(g, pr.filling, x + 12, y - ry, sz, 0.5);
+  }
   // тіло
   const body = () => {
     g.beginPath();
@@ -240,7 +285,7 @@ export function drawSack(g: CanvasRenderingContext2D, pr: Profile, x: number, y:
   if (pr.logo) {
     const lx = x - o.face * rx * 0.42, ly = y - ry * 0.36;
     const size = Math.max(10, Math.min(rx, ry) * 0.42);
-    g.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    g.font = `${size}px ${EMOJI_FONT}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(pr.logo, lx, ly);

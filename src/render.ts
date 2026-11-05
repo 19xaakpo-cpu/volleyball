@@ -5,7 +5,7 @@ import {
 import type { GameEvent, GameState } from './sim/game.ts';
 import { reactionById } from './cosmetics.ts';
 import type { GameLook, Reaction } from './cosmetics.ts';
-import { drawBall, drawSack } from './draw.ts';
+import { drawBall, drawFilling, drawSack } from './draw.ts';
 import type { Face } from './draw.ts';
 import { SceneRenderer } from './scenes.ts';
 
@@ -49,6 +49,7 @@ export class Renderer {
   private blink = [0, 0];
   private ballAngle = 0;
   private trail: { x: number; y: number }[] = [];
+  private spills: { x: number; y: number; vx: number; vy: number; rot: number; vr: number; life: number; id: string; size: number }[] = [];
   private particles: Particle[] = [];
   private popups: Popup[] = [];
   private shake = 0;
@@ -79,6 +80,7 @@ export class Renderer {
   reset() {
     this.reactions = [null, null];
     this.particles = [];
+    this.spills = [];
     this.popups = [];
   }
 
@@ -129,6 +131,9 @@ export class Renderer {
           const pw = this.look.profiles[e.winner], pl = this.look.profiles[1 - e.winner];
           this.react(e.winner, pw.winPoint, 78);
           this.react(1 - e.winner, pl.losePoint, 78);
+          // розгромний рахунок — з мішка того, хто програє, висипається начинка
+          const gap = s.score[e.winner] - s.score[1 - e.winner];
+          if (gap >= 4) this.spill(s, 1 - e.winner, Math.min(16, 4 + (gap - 4) * 3));
           this.scenes.cheer = 1;
           break;
         }
@@ -144,6 +149,45 @@ export class Renderer {
           break;
       }
     }
+  }
+
+  private spill(s: GameState, p: number, n: number) {
+    const k = s.players[p];
+    const id = this.look.profiles[p].filling;
+    for (let i = 0; i < n; i++) {
+      this.spills.push({
+        x: k.x + (Math.random() - 0.5) * 20, y: k.y - SACK_RY + 4,
+        vx: (Math.random() - 0.5) * 7, vy: -4 - Math.random() * 5,
+        rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+        life: 220 + Math.random() * 60, id, size: 16 + Math.random() * 6,
+      });
+    }
+    if (this.spills.length > 80) this.spills.splice(0, this.spills.length - 80);
+  }
+
+  private drawSpills() {
+    const g = this.g;
+    for (let i = this.spills.length - 1; i >= 0; i--) {
+      const o = this.spills[i];
+      o.life--;
+      if (o.life <= 0) { this.spills.splice(i, 1); continue; }
+      o.vy += 0.35;
+      o.x += o.vx;
+      o.y += o.vy;
+      o.rot += o.vr;
+      const floor = GROUND - o.size * 0.35;
+      if (o.y > floor) {
+        o.y = floor;
+        o.vy = -o.vy * 0.35;
+        o.vx *= 0.75;
+        o.vr *= 0.7;
+        if (Math.abs(o.vy) < 0.8) o.vy = 0;
+      }
+      if (o.x < 10 || o.x > W - 10) o.vx = -o.vx;
+      g.globalAlpha = Math.min(1, o.life / 40);
+      drawFilling(g, o.id, o.x, o.y, o.size, o.rot);
+    }
+    g.globalAlpha = 1;
   }
 
   private spark(x: number, y: number, color: string, size: number, up = false) {
@@ -209,11 +253,12 @@ export class Renderer {
     g.rect(0, 0, W, H);
     g.clip();
 
-    this.scenes.drawBack(g, info.scene, this.dpr * this.scale, this.time);
+    this.scenes.drawBack(g, info.scene, this.dpr * this.scale, this.time, [s.score[0], s.score[1]]);
     for (let p = 0; p < 2; p++) this.shadow(s.players[p].x, s.players[p].y, SACK_RX, 0.28);
     // тінь м'яча — завжди на підлозі, навіть коли м'яч над екраном
     this.shadow(s.ball.x, s.ball.y + BALL_R, BALL_R * 0.9, 0.3);
     this.scenes.drawNet(g, info.scene === 'metro' && this.look.location === 'kyiv' ? 'metro' : info.scene, s.net);
+    this.drawSpills();
     for (let p = 0; p < 2; p++) this.drawPlayer(s, p);
     this.drawTrail(s);
     drawBall(g, this.look.ball, s.ball.x, s.ball.y, BALL_R, (this.ballAngle += (s.ball.vx / BALL_R) * dt * 30));
@@ -336,27 +381,6 @@ export class Renderer {
     });
     g.restore();
 
-    // бульбашка з реакцією
-    if (ar && (ar.t < 75 || ar.dur > 1e6)) {
-      const label = `${ar.r.emoji} ${ar.r.text}`.trim();
-      if (label) {
-        const by = k.y + dy - ry * scy - 46;
-        g.font = '700 16px system-ui, sans-serif';
-        const tw = g.measureText(label).width + 22;
-        const bx = Math.max(tw / 2 + 4, Math.min(W - tw / 2 - 4, k.x));
-        g.fillStyle = 'rgba(255,255,255,0.94)';
-        g.beginPath();
-        g.roundRect(bx - tw / 2, by - 15, tw, 30, 14);
-        g.fill();
-        g.beginPath();
-        g.moveTo(k.x - 6, by + 14); g.lineTo(k.x, by + 24); g.lineTo(k.x + 6, by + 14);
-        g.fill();
-        g.fillStyle = '#222';
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        g.fillText(label, bx, by + 1);
-      }
-    }
   }
 
   private drawParticles() {
