@@ -19,6 +19,14 @@
       <button id="btn-pause" class="icon-btn" title="Пауза / меню (Esc)">⏸</button>
       <button id="btn-mute" class="icon-btn" title="Звук (M)">🔊</button>
       <button id="btn-full" class="icon-btn" title="На весь екран (F)">⛶</button>
+      <button id="btn-chat" class="icon-btn hidden" title="Чат (Enter)">💬</button>
+    </div>
+
+    <div id="chat" class="hidden">
+      <div id="chat-log"></div>
+      <form id="chat-form" class="hidden" autocomplete="off">
+        <input id="chat-input" maxlength="140" placeholder="Повідомлення… (Enter — надіслати, Esc — закрити)" />
+      </form>
     </div>
 
     <div id="touch" class="hidden"></div>
@@ -34,6 +42,7 @@
           <button class="big" data-go="bot">🤖 Проти бота</button>
           <button class="big" data-go="online">🌐 Гра по мережі / виклик друга</button>
           <button class="big" data-go="tsetup">🏆 Турнір (3–8 гравців)</button>
+          <button class="big" data-go="games">📋 Відкриті ігри — грати чи дивитися</button>
           <div class="row2btn">
             <button class="big" id="btn-my-sack">🎨 Мій мішок</button>
             <button class="big" id="btn-p2-sack">🎨 Мішок гравця 2</button>
@@ -64,6 +73,21 @@
           </details>
         </div>
 
+        <div class="screen hidden" data-screen="name">
+          <h2>Як вас звати?</h2>
+          <p class="note">Ім'я бачитимуть суперники й глядачі. Гра його запам'ятає; змінити можна в «Мій мішок».</p>
+          <input id="name-input" class="name-input" maxlength="16" placeholder="Ваше ім'я" autocomplete="nickname" />
+          <button class="big accent" id="name-save">✔ Зберегти</button>
+          <p class="note" id="name-err"></p>
+        </div>
+
+        <div class="screen hidden" data-screen="games">
+          <h2>Відкриті ігри</h2>
+          <div id="games-list" class="games-list"></div>
+          <p class="note" id="games-status">Шукаємо ігри…</p>
+          <button class="link" data-go="main">← Назад</button>
+        </div>
+
         <div class="screen hidden" data-screen="bot">
           <h2>Складність бота</h2>
           <button class="big" data-bot="easy">🥔 Легко</button>
@@ -75,6 +99,7 @@
         <div class="screen hidden" data-screen="online">
           <h2>Гра по мережі</h2>
           <button class="big" id="btn-host">⚔️ Викликати друга (створити кімнату)</button>
+          <label class="check"><input type="checkbox" id="room-public" checked /> Показувати мою гру в списку «Відкриті ігри»</label>
           <div class="join-row">
             <input id="join-code" maxlength="5" placeholder="КОД" autocomplete="off" autocapitalize="characters" spellcheck="false" />
             <button class="big" id="btn-join">Увійти</button>
@@ -90,6 +115,7 @@
             <div id="room-code" class="code">-----</div>
             <button class="big" id="btn-copy">📋 Копіювати посилання-виклик</button>
             <button class="big hidden" id="btn-share">📤 Поділитися</button>
+            <button class="big" id="btn-copy-watch">👁 Посилання для глядачів</button>
           </div>
           <p id="wait-status" class="note"></p>
           <button class="link" id="btn-cancel">← Скасувати</button>

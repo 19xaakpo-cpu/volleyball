@@ -11,6 +11,7 @@ import type { Difficulty } from '../bot.ts';
 import { PREFIX, PeerNode, createRoomNode, errText } from '../net/peer.ts';
 import type { Link } from '../net/peer.ts';
 import { handshakeGuest, handshakeHost } from '../net/handshake.ts';
+import { lobby } from '../net/lobby.ts';
 import { $, copyText, el, showScreen } from './dom.ts';
 import { editProfile, sackThumb } from './editors.ts';
 
@@ -357,6 +358,14 @@ class Hub {
         : { t: 'tlobby', players: this.t.players, rounds: this.t.rounds, target: this.t.target, location: this.t.location };
       clientReceive(msg);
       for (const l of this.links.values()) l.send(msg);
+      // поки турнір не почався — він видний у списку відкритих ігор
+      if (client?.code) {
+        if (!this.started && this.t.players.length < 8) {
+          lobby.announce({ code: client.code, kind: 'tour', host: this.t.players[0].profile.name, location: this.t.location, target: this.t.target, players: this.t.players.length, maxPlayers: 8, watchers: 0 });
+        } else {
+          lobby.remove(client.code);
+        }
+      }
     };
     if (now || performance.now() - this.lastBroadcast > 400) {
       if (this.bcTimer) { clearTimeout(this.bcTimer); this.bcTimer = null; }
@@ -449,6 +458,7 @@ function leaveOnline() {
   if (!client) return;
   const c = client;
   client = null;
+  if (hub) lobby.remove(c.code);
   if (hub) {
     for (const l of hub.links.values()) { l.send({ t: 'tend', reason: 'Організатор закрив турнір.' }); }
     hub = null;

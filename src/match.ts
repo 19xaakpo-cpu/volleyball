@@ -15,6 +15,8 @@ import { BALL_PRESETS, botProfile, defaultProfile, locationById } from './cosmet
 import type { GameLook } from './cosmetics.ts';
 import { kyivAlert } from './alerts.ts';
 import { $ } from './ui/dom.ts';
+import { addChat, addSystem, sanitizeChat, setChat } from './ui/chat.ts';
+import type { ChatMsg } from './ui/chat.ts';
 
 const DT = 1000 / 60;
 const DEBUG = location.search.includes('debug');
@@ -27,7 +29,7 @@ export interface TourCtx {
 }
 
 export interface MatchSpec {
-  kind: 'local' | 'bot' | 'online' | 'netsim';
+  kind: 'local' | 'bot' | 'online' | 'netsim' | 'watch';
   look: GameLook;
   target: number;
   botSide?: number;
@@ -38,6 +40,12 @@ export interface MatchSpec {
   early?: NetMsg[];
   rtt?: number;
   tour?: TourCtx;
+  /** глядачі, що підключилися ще до початку матчу (лише в того, хто створив кімнату) */
+  watchers?: Link[];
+  /** змінилася кількість глядачів */
+  onWatchers?: (n: number) => void;
+  /** ім'я для чату (для глядача) */
+  myName?: string;
   /** куди повертатися після виходу */
   onExit: () => void;
 }
@@ -55,6 +63,8 @@ interface Running {
   overSince: number;
   scene: string;
   lastScore: string;
+  watchers: Link[];
+  watchWaiting: boolean;
 }
 
 let run: Running | null = null;
@@ -114,6 +124,8 @@ export function beginMatch(spec: MatchSpec) {
     overSince: 0,
     scene: sceneFor(spec.look),
     lastScore: '0:0',
+    watchers: [],
+    watchWaiting: spec.kind === 'watch',
   };
   if (spec.kind === 'bot') r.bot = new Bot(spec.botSide ?? 1, spec.botDiff ?? 'normal');
   if (spec.kind === 'online') {
@@ -127,6 +139,12 @@ export function beginMatch(spec: MatchSpec) {
       if (m.t === 'ready' && spec.side === 0) link.send({ t: 'start', delay: spec.delay, target: spec.target });
       else if (m.t === 'bye') opponentGone(m.s ? 'surrender' : 'Суперник вийшов з гри.');
       else if (m.t === 'in' || m.t === 'ping' || m.t === 'pong' || m.t === 'hash') session.receive(m);
+      else if (m.t === 'chat') {
+        const c = sanitizeChat(m);
+        if (!c) return;
+        if (spec.side === 0) relayChat(r, { ...c, from: spec.look.profiles[1].name, role: 'p' }, link);
+        else addChat(c);
+      } else if (m.t === 'sys' && typeof m.text === 'string' && spec.side === 1) addSystem(m.text.slice(0, 80));
     };
     link.onClose = (reason) => opponentGone(reason + '.');
     for (const m of spec.early ?? []) session.receive(m);
@@ -150,7 +168,57 @@ export function beginMatch(spec: MatchSpec) {
     r.netBot = new Bot(1, 'normal');
     r.state = a.state;
   }
+  if (spec.kind === 'watch') {
+    const link = spec.link!;
+    link.send({ t: 'hi', name: spec.myName ?? 'Глядач' });
+    link.onMessage = (m: any) => {
+      if (!m || typeof m.t !== 'string' || run !== r) return;
+      if (m.t === 'look' && m.look?.profiles) {
+        r.spec.look = m.look;
+        renderer.look = m.look;
+        r.scene = sceneFor(m.look);
+        r.watchWaiting = !!m.waiting;
+      } else if (m.t === 'snap' && m.st?.players && m.st?.ball) {
+        r.state = m.st;
+        r.watchWaiting = false;
+      } else if (m.t === 'ev' && Array.isArray(m.ev)) {
+        handleEvents(m.ev, r);
+      } else if (m.t === 'chat') {
+        const c = sanitizeChat(m);
+        if (c) addChat(c);
+      } else if (m.t === 'sys' && typeof m.text === 'string') {
+        addSystem(m.text.slice(0, 80));
+      } else if (m.t === 'bye') {
+        r.ended = true;
+        showPause('Трансляцію завершено', 'Гравець закрив гру.', false);
+      }
+    };
+    link.onClose = () => {
+      if (run !== r || r.ended) return;
+      r.ended = true;
+      showPause('Трансляцію завершено', 'Зв\'язок із грою втрачено.', false);
+    };
+  }
   run = r;
+  if (spec.kind === 'online' && spec.side === 0) for (const w of spec.watchers ?? []) attachWatcher(r, w);
+  if (spec.kind === 'online') {
+    const me = spec.look.profiles[spec.side!].name;
+    setChat((text) => {
+      const c: ChatMsg = { from: me, text, role: 'p' };
+      if (spec.side === 0) relayChat(r, c);
+      else { addChat(c); spec.link!.send({ t: 'chat', ...c }); }
+    });
+  } else if (spec.kind === 'watch') {
+    const me = spec.myName ?? 'Глядач';
+    setChat((text) => {
+      const c: ChatMsg = { from: me, text, role: 'w' };
+      addChat(c);
+      spec.link!.send({ t: 'chat', ...c });
+    });
+    addSystem('👁 Ви дивитеся гру. Enter — написати в чат.');
+  } else {
+    setChat(null);
+  }
   renderer.look = spec.look;
   renderer.reset();
   hidePause();
@@ -160,6 +228,55 @@ export function beginMatch(spec: MatchSpec) {
   updateTouch();
   sfx.whistle();
   announceScene(r.scene, null);
+}
+
+// ---------- глядачі (лише в того, хто створив кімнату) ----------
+
+function sendWatchers(r: Running, msg: unknown) {
+  for (const w of r.watchers) w.send(msg);
+}
+
+/** Повідомлення чату: показати і розіслати всім, крім відправника. */
+function relayChat(r: Running, c: ChatMsg, except?: Link) {
+  addChat(c);
+  for (const w of r.watchers) if (w !== except) w.send({ t: 'chat', ...c });
+  const g = r.spec.link;
+  if (g && g !== except && r.spec.kind === 'online') g.send({ t: 'chat', ...c });
+}
+
+function systemAll(r: Running, text: string) {
+  addSystem(text);
+  sendWatchers(r, { t: 'sys', text });
+  if (r.spec.kind === 'online') r.spec.link?.send({ t: 'sys', text });
+}
+
+function attachWatcher(r: Running, link: Link) {
+  r.watchers.push(link);
+  const name = () => String((link as any).wname ?? 'Глядач').slice(0, 16);
+  link.send({ t: 'look', look: r.spec.look, waiting: false });
+  link.send({ t: 'snap', st: r.state });
+  link.onMessage = (m: any) => {
+    if (m?.t === 'hi') {
+      (link as any).wname = String(m.name ?? 'Глядач').slice(0, 16);
+      systemAll(r, `👁 ${name()} дивиться гру`);
+    } else if (m?.t === 'chat') {
+      const c = sanitizeChat(m);
+      if (c) relayChat(r, { ...c, from: name(), role: 'w' }, link);
+    }
+  };
+  link.onClose = () => {
+    r.watchers = r.watchers.filter((w) => w !== link);
+    r.spec.onWatchers?.(r.watchers.length);
+  };
+  if ((link as any).wname) systemAll(r, `👁 ${name()} дивиться гру`);
+  r.spec.onWatchers?.(r.watchers.length);
+}
+
+/** Глядач підключився під час матчу. */
+export function addWatcher(link: Link): boolean {
+  if (!run || run.ended || run.spec.kind !== 'online' || run.spec.side !== 0) return false;
+  attachWatcher(run, link);
+  return true;
 }
 
 function opponentGone(reason: string) {
@@ -192,6 +309,8 @@ export function leaveMatch(surrender = false) {
     const l = r.spec.link;
     setTimeout(() => l.close(), 150);
   }
+  for (const w of r.watchers) { w.send({ t: 'bye' }); setTimeout(() => w.close(), 150); }
+  setChat(null);
   run = null;
   hidePause();
   renderer.look = menuLook;
@@ -308,6 +427,7 @@ function localSide(r: Running): number {
     case 'bot': return 1 - (r.spec.botSide ?? 1);
     case 'online': return r.spec.side!;
     case 'netsim': return 0;
+    case 'watch': return -1;
   }
 }
 
@@ -315,6 +435,7 @@ function handleEvents(ev: GameEvent[], r: Running) {
   if (ev.length === 0) return;
   const ls = localSide(r);
   renderer.onEvents(ev, r.state, ls);
+  if (r.watchers.length) sendWatchers(r, { t: 'ev', ev });
   for (const e of ev) {
     switch (e.type) {
       case 'hit': if (e.super) sfx.superHit(e.spike); else sfx.hit(e.speed); break;
@@ -364,6 +485,8 @@ function tick() {
       const evs = r.session!.tick(mask(readInput('any')));
       r.state = r.session!.state;
       handleEvents(evs, r);
+      // трансляція стану глядачам (30 разів на секунду)
+      if (r.watchers.length && r.state.frame % 2 === 0) sendWatchers(r, { t: 'snap', st: r.state });
       if (performance.now() - r.session!.stats.lastRecv > 15000) opponentGone('З\'єднання із суперником втрачено.');
       if (r.session!.stats.desync) opponentGone('Гра розсинхронізувалася — найімовірніше, у вас із суперником різні версії гри. Обом оновіть сторінку (Ctrl+F5 або потягнути вниз на телефоні) і спробуйте ще раз.');
       break;
@@ -413,6 +536,13 @@ function drawInfo(): DrawInfo {
     banner: r.scene === 'metro' ? METRO_BANNER : undefined,
   };
   if (r.spec.tour) info.overText = 'Стрибок — до турнірної таблиці';
+  if (r.spec.kind === 'watch') {
+    info.hint = touchUi ? '👁 Ви глядач' : '👁 Ви глядач  ·  Enter — написати в чат';
+    info.overText = '👁 Гравці вирішують, чи грати ще…';
+    if (r.watchWaiting) info.waitText = 'Очікуємо, поки до кімнати приєднається суперник…';
+    return info;
+  }
+  if (r.watchers.length) info.watchers = r.watchers.length;
   if (!touchUi && r.state.frame < 400 && !info.banner) {
     if (r.spec.kind === 'local') info.hint = 'Лівий: A D W S  ·  Правий: ← → ↑ ↓  ·  двічі вбік — ривок  ·  присісти+стрибок — супер';
     else info.hint = '← → ходити  ·  ↑ стрибок  ·  ↓ присісти  ·  ←← / →→ ривок  ·  ↓ і одразу ↑ — суперстрибок';

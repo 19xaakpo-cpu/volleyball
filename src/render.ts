@@ -21,6 +21,10 @@ export interface DrawInfo {
   scene: string;
   banner?: string;
   overText?: string;
+  /** кількість глядачів (показується в куті) */
+  watchers?: number;
+  /** великий напис посередині (напр. для глядача до початку гри) */
+  waitText?: string;
 }
 
 interface Particle {
@@ -457,7 +461,7 @@ export class Renderer {
       g.globalAlpha = 1;
     }
     if (s.phase === PH_SERVE && s.timer > 0) {
-      this.text('Подача — дістаньте м\'яч стрибком', s.server === 0 ? W * 0.25 : W * 0.75, 125, 18, 'rgba(255,255,255,0.9)', 'center', 700);
+      this.text('Подача — дістаньте м\'яч стрибком', s.server === 0 ? W * 0.25 : W * 0.75, 152, 18, 'rgba(255,255,255,0.9)', 'center', 700);
     }
     if (s.boost > 1.01 && s.phase === 1) {
       this.text(`🔥 ×${s.boost.toFixed(2)}`, NET_X, 125, 18, '#ffb347', 'center', 800);
@@ -473,6 +477,8 @@ export class Renderer {
       }
     }
     if (info.stalled) this.text('Очікування суперника…', W / 2, H / 2 - 40, 24, '#fff', 'center', 700);
+    if (info.waitText) this.text(info.waitText, W / 2, H / 2 - 40, 22, '#fff', 'center', 700);
+    if (info.watchers) this.text(`👁 ${info.watchers}`, W - 12, info.ping !== undefined ? 40 : 20, 14, '#fff', 'right', 700);
     if (info.hint) this.text(info.hint, W / 2, H - 22, 15, 'rgba(255,255,255,0.9)', 'center', 600);
     if (info.ping !== undefined) {
       const pc = info.ping < 80 ? '#9cff9c' : info.ping < 160 ? '#ffe28a' : '#ff9c8a';
