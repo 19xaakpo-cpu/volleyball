@@ -42,7 +42,7 @@ const SUPER_HIT_MIN = 15; // мінімальна швидкість м'яча �
 const BOOST_STEP = 1.1; // кожен суперудар пришвидшує м'яч
 const BOOST_MAX = 1.6;
 /** подача: м'яч висить тут, поки його не вдарять */
-export const SERVE_Y = 285;
+export const SERVE_Y = 296;
 const SERVE_TIMEOUT = 600; // 10 с — потім м'яч падає сам
 
 export const MAX_TOUCHES = 3;
@@ -333,7 +333,10 @@ function updateSack(s: GameState, p: number, input: number, events: GameEvent[] 
 }
 
 // Результат зіткнення: 0 — немає, 1 — звичайне, 2 — суперудар, 3 — суперудар-"гасіння".
-function collideSack(b: Ball, k: Sack, p: number, boost: number): number {
+/** гасіння можливе лише коли мішок стоїть упритул до сітки (не далі цього зазору) */
+export const SPIKE_GAP = 14;
+
+function collideSack(b: Ball, k: Sack, p: number, boost: number, netHalf: number): number {
   const [rx, ry] = sackRadii(k);
   const dx = b.x - k.x;
   const dy = b.y - k.y;
@@ -398,7 +401,9 @@ function collideSack(b: Ball, k: Sack, p: number, boost: number): number {
     let sp = sp0 * 1.15;
     if (sp < SUPER_HIT_MIN * boost) sp = SUPER_HIT_MIN * boost;
     let dx = b.vx, dy = b.vy;
-    if (nx * toNet > 0.45 && ny > -0.75) {
+    const [rxNow] = sackRadii(k);
+    const gapToNet = p === 0 ? NET_X - netHalf - (k.x + rxNow) : (k.x - rxNow) - (NET_X + netHalf);
+    if (gapToNet <= SPIKE_GAP && nx * toNet > 0.45 && ny > -0.75) {
       // м'яч збоку з боку сітки — б'ємо вперед і вниз
       dx = toNet * 0.88;
       dy = 0.48;
@@ -547,7 +552,7 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
     s.timer--;
     let started = s.timer <= 0;
     for (let p = 0; p < 2 && !started; p++) {
-      const kind = collideSack(b, s.players[p], p, s.boost);
+      const kind = collideSack(b, s.players[p], p, s.boost, s.net.half);
       if (kind) {
         started = true;
         registerTouch(s, p, kind, events);
@@ -595,7 +600,7 @@ export function step(s: GameState, in0: number, in1: number, events: GameEvent[]
       continue;
     }
     for (let p = 0; p < 2; p++) {
-      const kind = collideSack(b, s.players[p], p, s.boost);
+      const kind = collideSack(b, s.players[p], p, s.boost, s.net.half);
       if (kind && registerTouch(s, p, kind, events)) break;
     }
     // мішок міг виштовхнути м'яч у стіну/сітку — повертаємо в межі

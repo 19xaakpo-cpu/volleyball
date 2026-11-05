@@ -147,3 +147,25 @@ test('ривок: подвійне натискання стрілки, поті
   step(u, 2, 0);
   assert.equal(u.players[0].dash, 0);
 });
+
+test('гасіння — лише впритул до сітки; здалеку суперудар іде вгору', () => {
+  const run = (sackX: number) => {
+    const s = createGame(15, 0);
+    s.phase = PH_RALLY;
+    const k = s.players[0];
+    k.x = sackX; k.y = 330; k.vy = -2; k.superAir = true;
+    // м'яч збоку мішка з боку сітки
+    s.ball.x = k.x + 58; s.ball.y = k.y - 20; s.ball.vx = -3; s.ball.vy = 1;
+    const ev: GameEvent[] = [];
+    for (let f = 0; f < 5; f++) { step(s, 0, 0, ev); if (ev.some(e => e.type === 'hit')) break; }
+    const h = ev.find(e => e.type === 'hit');
+    assert.ok(h && h.type === 'hit' && h.super, 'має бути суперудар');
+    return { spike: h.spike, vy: s.ball.vy };
+  };
+  const near = run(480 - 6 - 52); // упритул до сітки
+  assert.equal(near.spike, true);
+  assert.ok(near.vy > 0, 'гасіння — вниз');
+  const far = run(200);
+  assert.equal(far.spike, false);
+  assert.ok(far.vy < 0, 'здалеку — вгору');
+});

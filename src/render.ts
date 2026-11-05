@@ -1,5 +1,5 @@
 import {
-  BALL_R, CROUCH_RX, CROUCH_RY, FAULT_TOUCHES, GROUND, H, MAX_TOUCHES, NET_X,
+  BALL_R, CROUCH_RX, CROUCH_RY, GROUND, H, MAX_TOUCHES, NET_X,
   PH_OVER, PH_POINT, PH_SERVE, SACK_RX, SACK_RY, W,
 } from './sim/game.ts';
 import type { GameEvent, GameState } from './sim/game.ts';
@@ -96,7 +96,6 @@ export class Renderer {
           if (e.super) {
             for (let i = 0; i < 26; i++) this.spark(e.x, e.y, i % 2 ? '#ffd76a' : '#ff7a3c', 4);
             this.shake = Math.max(this.shake, e.spike ? 9 : 6);
-            this.popups.push({ text: e.spike ? 'ГАСІННЯ!' : 'СУПЕР!', x: e.x, y: e.y - 40, life: 45, color: e.spike ? '#ff7a3c' : '#ffd76a' });
             break;
           }
           const n = 6 + Math.min(10, e.speed | 0);
@@ -124,10 +123,6 @@ export class Renderer {
           for (let i = 0; i < 5; i++) this.spark(e.x, e.y, '#ffffff', 2);
           break;
         case 'point': {
-          const txt = e.fault === FAULT_TOUCHES ? '4 торкання!' : '+1';
-          const x = e.winner === 0 ? W * 0.25 : W * 0.75;
-          const mine = localSide === -1 || localSide === e.winner;
-          this.popups.push({ text: txt, x, y: 150, life: 70, color: mine ? '#ffd76a' : '#ff8a7a' });
           const pw = this.look.profiles[e.winner], pl = this.look.profiles[1 - e.winner];
           this.react(e.winner, pw.winPoint, 78);
           this.react(1 - e.winner, pl.losePoint, 78);
