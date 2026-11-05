@@ -15,7 +15,7 @@ import { BALL_PRESETS, botProfile, defaultProfile, locationById } from './cosmet
 import type { GameLook } from './cosmetics.ts';
 import { kyivAlert } from './alerts.ts';
 import { $ } from './ui/dom.ts';
-import { addChat, addSystem, sanitizeChat, setChat } from './ui/chat.ts';
+import { addChat, addSystem, chatEnabled, sanitizeChat, setChat } from './ui/chat.ts';
 import type { ChatMsg } from './ui/chat.ts';
 
 const DT = 1000 / 60;
@@ -196,7 +196,7 @@ export function beginMatch(spec: MatchSpec) {
     link.onClose = () => {
       if (run !== r || r.ended) return;
       r.ended = true;
-      showPause('Трансляцію завершено', 'Зв\'язок із грою втрачено.', false);
+      showPause('Трансляцію завершено', r.watchWaiting ? 'Матч ще не почався або вже завершився.' : 'Зв\'язок із грою втрачено.', false);
     };
   }
   run = r;
@@ -252,6 +252,11 @@ function systemAll(r: Running, text: string) {
 
 function attachWatcher(r: Running, link: Link) {
   r.watchers.push(link);
+  // у матчі з ботом чат вмикається з першим глядачем
+  if (!chatEnabled()) {
+    const me = r.spec.look.profiles[localSide(r) === 1 ? 1 : 0].name;
+    setChat((text) => relayChat(r, { from: me, text, role: 'p' }));
+  }
   const name = () => String((link as any).wname ?? 'Глядач').slice(0, 16);
   link.send({ t: 'look', look: r.spec.look, waiting: false });
   link.send({ t: 'snap', st: r.state });
@@ -274,7 +279,9 @@ function attachWatcher(r: Running, link: Link) {
 
 /** Глядач підключився під час матчу. */
 export function addWatcher(link: Link): boolean {
-  if (!run || run.ended || run.spec.kind !== 'online' || run.spec.side !== 0) return false;
+  if (!run || run.ended) return false;
+  const k = run.spec.kind;
+  if (!((k === 'online' && run.spec.side === 0) || k === 'bot')) return false;
   attachWatcher(run, link);
   return true;
 }
@@ -479,6 +486,7 @@ function tick() {
       if (bs === 1) step(r.state, mask(human), mask(bi), ev);
       else step(r.state, mask(bi), mask(human), ev);
       handleEvents(ev, r);
+      if (r.watchers.length && r.state.frame % 2 === 0) sendWatchers(r, { t: 'snap', st: r.state });
       break;
     }
     case 'online': {

@@ -461,7 +461,7 @@ export class Renderer {
       g.globalAlpha = 1;
     }
     if (s.phase === PH_SERVE && s.timer > 0) {
-      this.text('Подача — дістаньте м\'яч стрибком', s.server === 0 ? W * 0.25 : W * 0.75, 152, 18, 'rgba(255,255,255,0.9)', 'center', 700);
+      this.text('Подача — дістаньте м\'яч стрибком', s.server === 0 ? W * 0.25 : W * 0.75, 204, 18, 'rgba(255,255,255,0.9)', 'center', 700);
     }
     if (s.boost > 1.01 && s.phase === 1) {
       this.text(`🔥 ×${s.boost.toFixed(2)}`, NET_X, 125, 18, '#ffb347', 'center', 800);

@@ -6,7 +6,7 @@ import {
   forfeitScore, isFinished, makeSchedule, nextLocalMatch, simulateBotMatch, standings,
 } from '../tournament.ts';
 import type { TMatch, TPlayer, Tournament } from '../tournament.ts';
-import { beginMatch, isPlaying } from '../match.ts';
+import { addWatcher, beginMatch, isPlaying, leaveMatch } from '../match.ts';
 import type { Difficulty } from '../bot.ts';
 import { PREFIX, PeerNode, createRoomNode, errText } from '../net/peer.ts';
 import type { Link } from '../net/peer.ts';
@@ -213,6 +213,7 @@ interface ClientState {
   toHub: (msg: any) => void;
   pendingConns: Map<number, Link>;
   inMatch: number;
+  spectator: boolean;
   ball: BallDesign;
   rounds: number;
 }
@@ -227,6 +228,7 @@ class Hub {
   t: Tournament;
   started = false;
   links = new Map<number, Link>();
+  spectators = new Map<number, Link>();
   nextId = 1;
   ball: BallDesign;
   private lastBroadcast = 0;
@@ -240,6 +242,15 @@ class Hub {
   addLink(link: Link) {
     let id = -1;
     link.onMessage = (m: any) => {
+      if (m?.t === 'tjoin' && id < 0 && m.spectator) {
+        // глядач турніру: бачить таблицю й може дивитися матчі
+        const sid = this.nextId++;
+        this.spectators.set(sid, link);
+        link.onClose = () => this.spectators.delete(sid);
+        link.send({ t: 'twelcome', id: sid, spectator: true });
+        this.broadcast(true);
+        return;
+      }
       if (m?.t === 'tjoin' && id < 0) {
         if (this.started || this.t.players.length >= 8) {
           link.send({ t: 'tfull', reason: this.started ? 'Турнір уже почався.' : 'Уже 8 учасників.' });
@@ -358,13 +369,14 @@ class Hub {
         : { t: 'tlobby', players: this.t.players, rounds: this.t.rounds, target: this.t.target, location: this.t.location };
       clientReceive(msg);
       for (const l of this.links.values()) l.send(msg);
-      // поки турнір не почався — він видний у списку відкритих ігор
+      for (const l of this.spectators.values()) l.send(msg);
+      // турнір видно у списку відкритих ігор: поки збирається — щоб приєднатися, потім — щоб дивитися
       if (client?.code) {
-        if (!this.started && this.t.players.length < 8) {
-          lobby.announce({ code: client.code, kind: 'tour', host: this.t.players[0].profile.name, location: this.t.location, target: this.t.target, players: this.t.players.length, maxPlayers: 8, watchers: 0 });
-        } else {
-          lobby.remove(client.code);
-        }
+        const n = this.t.players.length;
+        const info = { code: client.code, kind: 'tour' as const, host: this.t.players[0].profile.name, location: this.t.location, target: this.t.target, watchers: this.spectators.size };
+        if (!this.started && n < 8) lobby.announce({ ...info, players: n, maxPlayers: 8 });
+        else if (this.started && !isFinished(this.t)) lobby.announce({ ...info, players: n, maxPlayers: n });
+        else lobby.remove(client.code);
       }
     };
     if (now || performance.now() - this.lastBroadcast > 400) {
@@ -390,11 +402,12 @@ async function hostOnline() {
     hub = new Hub({ ...me }, node.id, env.target(), env.location(), env.ball(), rounds());
     client = {
       node, myId: 0, t: null, lobby: [], isHost: true, code, ball: env.ball(), rounds: rounds(),
-      toHub: (m) => hub!.onMsg(0, m), pendingConns: new Map(), inMatch: -1,
+      toHub: (m) => hub!.onMsg(0, m), pendingConns: new Map(), inMatch: -1, spectator: false,
     };
     node.onConnection = (link) => {
       if (link.meta?.kind === 'hub') hub!.addLink(link);
       else if (link.meta?.kind === 'match') onMatchConn(link);
+      else if (link.meta?.kind === 'watch') { if (!addWatcher(link)) link.close(); }
       else link.close();
     };
     node.onError = (t) => setTlStatus(t);
@@ -414,9 +427,9 @@ $('#tl-start').addEventListener('click', () => {
 });
 $('#tl-leave').addEventListener('click', () => { leaveOnline(); env.toMain(); });
 
-export async function joinOnlineTour(code: string) {
+export async function joinOnlineTour(code: string, spectator = false) {
   showScreen('tlobby');
-  $('#tl-title').textContent = 'Турнір ' + code;
+  $('#tl-title').textContent = (spectator ? '👁 Перегляд турніру ' : 'Турнір ') + code;
   $('#tl-host-ctrl').classList.add('hidden');
   $('#tl-code').textContent = code;
   ($('#tl-copy') as HTMLButtonElement).onclick = () => copyText(tourUrl(code, env.myProfile().name), $('#tl-copy'), '📋 Копіювати запрошення');
@@ -438,17 +451,21 @@ export async function joinOnlineTour(code: string) {
     }
     client = {
       node, myId: -1, t: null, lobby: [], isHost: false, code, ball: env.ball(), rounds: 1,
-      toHub: (m) => link.send(m), pendingConns: new Map(), inMatch: -1,
+      toHub: (m) => link.send(m), pendingConns: new Map(), inMatch: -1, spectator,
     };
-    node.onConnection = (l) => { if (l.meta?.kind === 'match') onMatchConn(l); else l.close(); };
+    node.onConnection = (l) => {
+      if (l.meta?.kind === 'match') onMatchConn(l);
+      else if (l.meta?.kind === 'watch') { if (!addWatcher(l)) l.close(); }
+      else l.close();
+    };
     link.onMessage = (m) => clientReceive(m);
     link.onClose = () => {
       if (!client) return;
       setTlStatus('Зв\'язок з організатором турніру втрачено.');
       $('#tt-next').replaceChildren(el('p', { class: 'note' }, 'Зв\'язок з організатором турніру втрачено. Турнір припинено.'));
     };
-    link.send({ t: 'tjoin', profile: env.myProfile(), peer: node.id });
-    setTlStatus('Очікуємо, поки організатор почне турнір…');
+    link.send({ t: 'tjoin', profile: env.myProfile(), peer: node.id, spectator });
+    setTlStatus(spectator ? 'Ви глядач. Коли турнір почнеться, тут з\'явиться таблиця з матчами.' : 'Очікуємо, поки організатор почне турнір…');
   } catch (e: any) {
     setTlStatus(errText(e.message));
   }
@@ -461,6 +478,7 @@ function leaveOnline() {
   if (hub) lobby.remove(c.code);
   if (hub) {
     for (const l of hub.links.values()) { l.send({ t: 'tend', reason: 'Організатор закрив турнір.' }); }
+    for (const l of hub.spectators.values()) { l.send({ t: 'tend', reason: 'Організатор закрив турнір.' }); }
     hub = null;
   }
   c.node.destroy();
@@ -544,7 +562,8 @@ function clientReceive(m: any) {
         box.append(el('div', { class: 'tp' }, sackThumb(pr, 30), el('span', { class: 'who' }, pr.name + (p.id === 0 ? ' 👑' : '') + (p.id === client.myId ? ' (ви)' : ''))));
       }
       const loc = LOCATIONS.find((l) => l.id === m.location)?.name ?? '';
-      if (!client.isHost) setTlStatus(`Учасників: ${m.players.length}. ${loc}, до ${m.target} очок, кіл: ${m.rounds}. Очікуємо старту…`);
+      if (client.spectator) setTlStatus(`👁 Ви глядач. Учасників: ${m.players.length}. ${loc}, до ${m.target} очок. Очікуємо старту…`);
+      else if (!client.isHost) setTlStatus(`Учасників: ${m.players.length}. ${loc}, до ${m.target} очок, кіл: ${m.rounds}. Очікуємо старту…`);
       else setTlStatus(`Учасників: ${m.players.length}/8. Потрібно щонайменше 3.`);
       break;
     }
@@ -561,6 +580,8 @@ function clientReceive(m: any) {
       break;
     }
     case 'tmatch': {
+      // якщо саме дивимось чужий матч — закриваємо перегляд, бо починається наш
+      if (isPlaying()) leaveMatch();
       client.inMatch = m.mid;
       m.me.profile = sanitizeProfile(m.me.profile, defaultProfile(0));
       m.opp.profile = sanitizeProfile(m.opp.profile, defaultProfile(1));
@@ -594,6 +615,26 @@ async function connectToOpponent(m: any, attempt: number) {
   }
 }
 
+/** Дивитися матч турніру: підключаємось до учасника, який його транслює. */
+async function watchTourMatch(x: TMatch) {
+  if (!client || !client.t) return;
+  const t = client.t;
+  const a = t.players.find((p) => p.id === x.a)!, b = t.players.find((p) => p.id === x.b)!;
+  // транслює лівий гравець, якщо він людина, інакше — правий (бот грає в браузері людини)
+  const streamer = !a.bot ? a : b;
+  if (!streamer.peer) return;
+  $('#tt-next').prepend(el('p', { class: 'note' }, `Підключаємось до матчу ${a.profile.name} — ${b.profile.name}…`));
+  try {
+    const link = await client.node.connect(streamer.peer, { kind: 'watch', mid: x.id }, 15000);
+    beginMatch({
+      kind: 'watch', look: lookFor(t, client.ball, a, b), target: t.target, link,
+      myName: env.myProfile().name, onExit: backToTable,
+    });
+  } catch (e: any) {
+    $('#tt-next').prepend(el('p', { class: 'note' }, `Не вдалося підключитися до матчу: ${errText(e.message)}`));
+  }
+}
+
 function renderClient() {
   if (!client || !client.t) return;
   const t = client.t;
@@ -606,11 +647,14 @@ function renderClient() {
     const mine = t.matches.filter((x) => x.status !== 'done' && (x.a === client!.myId || x.b === client!.myId));
     const playing = t.matches.filter((x) => x.status === 'playing');
     const byId = new Map(t.players.map((p) => [p.id, p]));
-    if (mine.length === 0) next.append(el('p', { class: 'note' }, 'Ваші матчі зіграно. Чекаємо на завершення інших.'));
-    else next.append(el('p', { class: 'note' }, `Ваших матчів лишилося: ${mine.length}. Матч почнеться автоматично, щойно суперник звільниться.`));
+    if (client.spectator) next.append(el('p', { class: 'note' }, '👁 Ви глядач. Натисніть «Дивитися» біля матчу, що йде.'));
+    else if (mine.length === 0) next.append(el('p', { class: 'note' }, 'Ваші матчі зіграно. Чекаємо на завершення інших. Можна подивитися матчі, що йдуть.'));
+    else next.append(el('p', { class: 'note' }, `Ваших матчів лишилося: ${mine.length}. Матч почнеться автоматично, щойно суперник звільниться. Поки що можна подивитися інші.`));
     for (const x of playing) {
       const a = byId.get(x.a)!, b = byId.get(x.b)!;
-      next.append(el('div', { class: 'vs' }, sackThumb(a.profile, 28), `${a.profile.name} ${x.live ? x.live[0] + ':' + x.live[1] : ''} ${b.profile.name}`, sackThumb(b.profile, 28)));
+      const mineMatch = x.a === client.myId || x.b === client.myId;
+      next.append(el('div', { class: 'vs' }, sackThumb(a.profile, 28), `${a.profile.name} ${x.live ? x.live[0] + ':' + x.live[1] : ''} ${b.profile.name}`, sackThumb(b.profile, 28),
+        ...(mineMatch ? [] : [el('button', { class: 'mini', onclick: () => watchTourMatch(x) }, '👁 Дивитися')])));
     }
   }
   showScreen('ttable');

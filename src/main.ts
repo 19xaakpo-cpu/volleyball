@@ -359,12 +359,13 @@ function renderGames(rooms: RoomInfo[]) {
     const loc = LOCATIONS.find((l) => l.id === r.location)?.name ?? '';
     const full = r.players >= r.maxPlayers;
     const status = r.kind === 'tour'
-      ? `🏆 Турнір · учасників ${r.players}/8`
+      ? (full ? `🏆 Турнір іде · учасників ${r.players}` : `🏆 Турнір збирається · ${r.players}/8`)
       : full ? '⚔️ Грають' : '⏳ Чекає суперника';
     const btns: HTMLElement[] = [];
     if (r.kind === 'room' && !full) btns.push(el('button', { class: 'accent', onclick: () => { stopGames(); withName(() => joinRoom(r.code)); } }, '⚔️ Грати'));
     if (r.kind === 'room') btns.push(el('button', { onclick: () => { stopGames(); withName(() => watchRoom(r.code)); } }, '👁 Дивитися'));
-    if (r.kind === 'tour') btns.push(el('button', { class: 'accent', onclick: () => { stopGames(); withName(() => joinOnlineTour(r.code)); } }, '🏆 Приєднатися'));
+    if (r.kind === 'tour' && !full) btns.push(el('button', { class: 'accent', onclick: () => { stopGames(); withName(() => joinOnlineTour(r.code)); } }, '🏆 Приєднатися'));
+    if (r.kind === 'tour') btns.push(el('button', { onclick: () => { stopGames(); withName(() => joinOnlineTour(r.code, true)); } }, '👁 Дивитися'));
     box.append(el('div', { class: 'game-row' },
       el('div', { class: 'info' }, el('b', {}, r.host), el('span', {}, `${status} · ${loc} · до ${r.target}${r.watchers ? ` · 👁 ${r.watchers}` : ''}`)),
       ...btns));
