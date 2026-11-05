@@ -226,6 +226,10 @@ export function beginMatch(spec: MatchSpec) {
   $('#editor').classList.add('hidden');
   $('#hud-buttons').classList.remove('hidden');
   updateTouch();
+  // на телефоні — одразу на весь екран і горизонтально (де браузер дозволяє)
+  if (touchUi && !document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+    try { toggleFullscreen(); } catch { /* браузер не дозволив */ }
+  }
   sfx.whistle();
   announceScene(r.scene, null);
 }

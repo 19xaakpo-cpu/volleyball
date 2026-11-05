@@ -280,3 +280,16 @@ label.check { display: flex; gap: 8px; align-items: center; justify-content: cen
 .game-row .info b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .game-row .info span { color: var(--muted); font-size: 13px; }
 .game-row button { padding: 7px 10px; font-size: 14px; white-space: nowrap; }
+
+/* ---------- сенсорні зони (один гравець) ---------- */
+.tzone { position: absolute; top: 22%; bottom: 0; pointer-events: auto; touch-action: none; -webkit-user-select: none; user-select: none; }
+.tzone.move { left: 0; width: 46%; }
+.tzone.act { right: 0; width: 40%; display: flex; flex-direction: column; }
+.tzone .zhint { position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); color: rgba(255,255,255,0.55); font-weight: 700; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.6); line-height: 1.25; }
+.tzone .zhint small { font-weight: 500; font-size: 12px; }
+.tzone.move.on .zhint { opacity: 0.25; }
+.tzone .knob { position: absolute; width: 74px; height: 74px; border-radius: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.18); border: 2px solid rgba(255,255,255,0.55); box-shadow: 0 0 0 26px rgba(255,255,255,0.06); pointer-events: none; }
+.tzone .half { flex: 1; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; padding-right: max(16px, env(safe-area-inset-right)); color: rgba(255,255,255,0.6); font-weight: 800; font-size: 17px; text-shadow: 0 1px 3px rgba(0,0,0,0.6); border-left: 2px dashed rgba(255,255,255,0.12); }
+.tzone .half.top { border-bottom: 2px dashed rgba(255,255,255,0.12); }
+.tzone .half small { font-weight: 500; font-size: 11px; margin-top: 4px; }
+.tzone .half.on { background: rgba(255,181,71,0.07); color: #fff; }
