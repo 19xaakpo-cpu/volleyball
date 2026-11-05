@@ -316,11 +316,11 @@ function handleEvents(ev: GameEvent[], r: Running) {
   renderer.onEvents(ev, r.state, ls);
   for (const e of ev) {
     switch (e.type) {
-      case 'hit': sfx.hit(e.speed); break;
+      case 'hit': if (e.super) sfx.superHit(e.spike); else sfx.hit(e.speed); break;
       case 'wall': sfx.wall(); break;
       case 'net': sfx.net(); break;
       case 'floor': sfx.floor(); break;
-      case 'jump': if (ls === -1 || e.p === ls) sfx.jump(); break;
+      case 'jump': if (e.super) sfx.superJump(); else if (ls === -1 || e.p === ls) sfx.jump(); break;
       case 'dash': sfx.dash(); break;
       case 'point':
         sfx.point(ls === -1 || e.winner === ls);
@@ -412,8 +412,8 @@ function drawInfo(): DrawInfo {
   };
   if (r.spec.tour) info.overText = 'Стрибок — до турнірної таблиці';
   if (!touchUi && r.state.frame < 400 && !info.banner) {
-    if (r.spec.kind === 'local') info.hint = 'Лівий: A D W S   ·   Правий: ← → ↑ ↓   ·   ↓ під час бігу — ривок';
-    else info.hint = 'Ходити ← → / A D   ·   стрибок ↑ / W   ·   присісти ↓ / S   ·   ↓ під час бігу — ривок';
+    if (r.spec.kind === 'local') info.hint = 'Лівий: A D W S  ·  Правий: ← → ↑ ↓  ·  двічі вбік — ривок  ·  присісти+стрибок — супер';
+    else info.hint = '← → ходити  ·  ↑ стрибок  ·  ↓ присісти  ·  ←← / →→ ривок  ·  ↓ і одразу ↑ — суперстрибок';
   }
   if (r.session) {
     const st = r.session.stats;

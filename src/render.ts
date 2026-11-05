@@ -48,6 +48,7 @@ export class Renderer {
   private prevVy = [0, 0];
   private blink = [0, 0];
   private ballAngle = 0;
+  private trail: { x: number; y: number }[] = [];
   private particles: Particle[] = [];
   private popups: Popup[] = [];
   private shake = 0;
@@ -90,9 +91,22 @@ export class Renderer {
     for (const e of events) {
       switch (e.type) {
         case 'hit': {
+          if (e.super) {
+            for (let i = 0; i < 26; i++) this.spark(e.x, e.y, i % 2 ? '#ffd76a' : '#ff7a3c', 4);
+            this.shake = Math.max(this.shake, e.spike ? 9 : 6);
+            this.popups.push({ text: e.spike ? 'ГАСІННЯ!' : 'СУПЕР!', x: e.x, y: e.y - 40, life: 45, color: e.spike ? '#ff7a3c' : '#ffd76a' });
+            break;
+          }
           const n = 6 + Math.min(10, e.speed | 0);
           for (let i = 0; i < n; i++) this.spark(e.x, e.y, e.pop ? '#bff3ff' : '#fff6d8', 3);
           if (e.speed > 14) this.shake = Math.max(this.shake, 4);
+          break;
+        }
+        case 'jump': {
+          if (e.super) {
+            const k = s.players[e.p];
+            for (let i = 0; i < 18; i++) this.spark(k.x + (Math.random() - 0.5) * 80, GROUND - 2, 'rgba(240,220,170,0.95)', 4, true);
+          }
           break;
         }
         case 'dash': {
@@ -201,12 +215,30 @@ export class Renderer {
     this.shadow(s.ball.x, s.ball.y + BALL_R, BALL_R * 0.9, 0.3);
     this.scenes.drawNet(g, info.scene === 'metro' && this.look.location === 'kyiv' ? 'metro' : info.scene, s.net);
     for (let p = 0; p < 2; p++) this.drawPlayer(s, p);
+    this.drawTrail(s);
     drawBall(g, this.look.ball, s.ball.x, s.ball.y, BALL_R, (this.ballAngle += (s.ball.vx / BALL_R) * dt * 30));
     this.drawParticles();
     if (s.ball.y < -BALL_R) this.offscreenMarker(s);
     if (info.banner) this.drawBanner(info.banner);
     this.drawHud(s, info);
     g.restore();
+  }
+
+  /** "Вогняний" слід за м'ячем, коли його розігнали суперударами. */
+  private drawTrail(s: GameState) {
+    const g = this.g;
+    this.trail.push({ x: s.ball.x, y: s.ball.y });
+    if (this.trail.length > 10) this.trail.shift();
+    const k = (s.boost - 1) / 0.6; // 0..1
+    if (k <= 0.01) return;
+    for (let i = 0; i < this.trail.length - 1; i++) {
+      const t = this.trail[i];
+      const a = (i / this.trail.length) * 0.55 * Math.min(1, k + 0.25);
+      g.fillStyle = `rgba(255,${(150 - k * 90) | 0},40,${a})`;
+      g.beginPath();
+      g.arc(t.x, t.y, BALL_R * (0.45 + (i / this.trail.length) * 0.5), 0, Math.PI * 2);
+      g.fill();
+    }
   }
 
   private offscreenMarker(s: GameState) {
@@ -406,7 +438,10 @@ export class Renderer {
       g.globalAlpha = 1;
     }
     if (s.phase === PH_SERVE && s.timer > 0) {
-      this.text('Подача', s.server === 0 ? W * 0.25 : W * 0.75, 125, 22, 'rgba(255,255,255,0.9)', 'center', 700);
+      this.text('Подача — дістаньте м\'яч стрибком', s.server === 0 ? W * 0.25 : W * 0.75, 125, 18, 'rgba(255,255,255,0.9)', 'center', 700);
+    }
+    if (s.boost > 1.01 && s.phase === 1) {
+      this.text(`🔥 ×${s.boost.toFixed(2)}`, NET_X, 125, 18, '#ffb347', 'center', 800);
     }
     if (s.phase === PH_OVER) {
       g.fillStyle = 'rgba(15,12,35,0.45)';

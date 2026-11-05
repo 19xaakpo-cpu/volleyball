@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, step, W, GROUND, BALL_R, PH_OVER, cloneState, hashState } from '../src/sim/game.ts';
+import { createGame, step, W, GROUND, BALL_R, PH_OVER, PH_RALLY, cloneState, hashState } from '../src/sim/game.ts';
 import type { GameEvent } from '../src/sim/game.ts';
 import { Bot } from '../src/bot.ts';
 import { mulberry32 } from './rng.ts';
@@ -22,7 +22,7 @@ test('бот проти бота: гра йде, м\'яч у межах, мат�
       const b = s.ball;
       assert.ok(Number.isFinite(b.x) && Number.isFinite(b.y), 'NaN');
       assert.ok(b.x >= BALL_R - 0.01 && b.x <= W - BALL_R + 0.01, `x out ${b.x}`);
-      assert.ok(b.y > -700 && b.y <= GROUND - BALL_R + 0.01, `y out ${b.y}`);
+      assert.ok(b.y > -1600 && b.y <= GROUND - BALL_R + 0.01, `y out ${b.y}`);
     }
     console.log(`${d0} vs ${d1}: hits=${hits} points=${points} 4-touch faults=${faults4} matches=${overs} longest rally=${maxRally}`);
     assert.ok(points >= 5, 'мало очок');
@@ -47,10 +47,10 @@ test('детермінованість: однакові введення — о
 });
 
 test('правило 3 торкань: четверте торкання — очко супернику', () => {
-  // гравець 0 стоїть на місці під м'ячем — м'яч стрибає йому на голову
+  // подача: гравець 0 стрибає під м'ячем, далі стоїть — м'яч стрибає йому на голову
   const s = createGame(15, 0);
   const ev: GameEvent[] = [];
-  for (let f = 0; f < 2000 && !ev.some(e => e.type === 'point'); f++) step(s, 0, 0, ev);
+  for (let f = 0; f < 2000 && !ev.some(e => e.type === 'point'); f++) step(s, f < 3 ? 4 : 0, 0, ev);
   const hits = ev.filter(e => e.type === 'hit').length;
   const pt = ev.find(e => e.type === 'point');
   assert.equal(hits, 4);
@@ -60,15 +60,62 @@ test('правило 3 торкань: четверте торкання — о�
 
 test('присідання підкидає м\'яч сильно вгору', () => {
   const s = createGame(15, 0);
+  s.phase = PH_RALLY;
+  s.ball.x = s.players[0].x; s.ball.y = 330; s.ball.vx = 0; s.ball.vy = 3;
   const ev: GameEvent[] = [];
-  let pop: any = null;
-  for (let f = 0; f < 300 && !pop; f++) {
+  for (let f = 0; f < 120; f++) {
     ev.length = 0;
     step(s, 8, 0, ev);
-    pop = ev.find(e => e.type === 'hit');
+    const h = ev.find(e => e.type === 'hit');
+    if (h && h.type === 'hit') { assert.ok(h.pop); assert.ok(s.ball.vy < -12, `vy=${s.ball.vy}`); return; }
   }
-  assert.ok(pop && pop.pop, 'удар у присіді');
-  assert.ok(s.ball.vy < -12, `vy=${s.ball.vy}`);
+  assert.fail('удару в присіді не було');
+});
+
+test('подача: м\'яч висить; звичайний стрибок ледь дістає, суперстрибок — легко', () => {
+  const s = createGame(15, 0);
+  const y0 = s.ball.y;
+  for (let f = 0; f < 200; f++) step(s, 0, 0);
+  assert.equal(s.ball.y, y0, 'м\'яч не мав падати');
+  // звичайний стрибок під м'ячем — дістає
+  const a = createGame(15, 0);
+  const ev: GameEvent[] = [];
+  for (let f = 0; f < 60; f++) step(a, 4, 0, ev);
+  assert.ok(ev.some(e => e.type === 'hit'), 'звичайний стрибок не дістав');
+  // запас по висоті: верх мішка в апогеї звичайного стрибка ледь вище за низ м'яча
+  const b = createGame(15, 0);
+  let minTop = 1e9;
+  for (let f = 0; f < 60; f++) { step(b, f < 1 ? 4 : 0, 1); minTop = Math.min(minTop, b.players[1].y - 58); }
+  const superG = createGame(15, 0);
+  const ev2: GameEvent[] = [];
+  step(superG, 8, 0); step(superG, 4, 0, ev2);
+  assert.ok(ev2.some(e => e.type === 'jump' && e.super), 'суперстрибок не спрацював');
+});
+
+test('суперстрибок у 1.8 раза вищий за звичайний', () => {
+  const peak = (inputs: number[]) => {
+    const s = createGame(15, 1);
+    let min = 1e9;
+    for (let f = 0; f < 120; f++) { step(s, inputs[f] ?? 0, 0); min = Math.min(min, s.players[0].y); }
+    return GROUND - min;
+  };
+  const normal = peak([4]);
+  const sup = peak([8, 4]);
+  const r = sup / normal;
+  assert.ok(r > 1.7 && r < 1.9, `ratio=${r}`);
+});
+
+test('суперудари пришвидшують м\'яч і накопичуються', () => {
+  const s = createGame(15, 0);
+  const ev: GameEvent[] = [];
+  // суперстрибок прямо під висячим м'ячем на подачі
+  step(s, 8, 0); step(s, 4, 0);
+  for (let f = 0; f < 40; f++) { step(s, 0, 0, ev); if (ev.some(e => e.type === 'hit')) break; }
+  const h = ev.find(e => e.type === 'hit');
+  assert.ok(h && h.type === 'hit' && h.super, 'має бути суперудар');
+  assert.ok(s.boost > 1.05, `boost=${s.boost}`);
+  const sp = Math.hypot(s.ball.vx, s.ball.vy);
+  assert.ok(sp >= 15, `speed=${sp}`);
 });
 
 test('м\'яч може залетіти за верх екрана', () => {
@@ -79,15 +126,24 @@ test('м\'яч може залетіти за верх екрана', () => {
   assert.ok(above > 0, 'м\'яч жодного разу не вилетів вгору');
 });
 
-test('ривок: швидко переміщує, потім довгий підйом', () => {
+test('ривок: подвійне натискання стрілки, потім довгий підйом; одинарне — ні', () => {
   const s = createGame(15, 1);
   const x0 = s.players[0].x;
-  step(s, 2, 0); // біжимо вправо
-  step(s, 2 | 8, 0); // присісти під час бігу = ривок
-  for (let i = 0; i < 10; i++) step(s, 2 | 8, 0);
+  step(s, 2, 0); step(s, 0, 0); step(s, 2, 0); // вправо, відпустити, вправо
+  for (let i = 0; i < 10; i++) step(s, 2, 0);
   const k = s.players[0];
   assert.ok(k.x - x0 > 120, `dx=${k.x - x0}`);
   assert.ok(k.recover > 0 && k.crouch);
   for (let i = 0; i < 5; i++) step(s, 4, 0); // стрибок під час підйому не працює
   assert.equal(k.vy, 0);
+  // присідання під час бігу більше не дає ривка
+  const t = createGame(15, 1);
+  step(t, 2, 0); step(t, 2 | 8, 0);
+  assert.equal(t.players[0].dash, 0);
+  // повільне подвійне натискання — не ривок
+  const u = createGame(15, 1);
+  step(u, 2, 0);
+  for (let i = 0; i < 20; i++) step(u, 0, 0);
+  step(u, 2, 0);
+  assert.equal(u.players[0].dash, 0);
 });

@@ -73,6 +73,11 @@ export const sfx = {
     else { tone(440, 0.14, 'triangle', 0.22); tone(330, 0.2, 'triangle', 0.22, 0, 0.12); }
   },
   whistle() { tone(2100, 0.25, 'sine', 0.12, 80); tone(2150, 0.25, 'sine', 0.08, 60); },
+  superJump() { tone(200, 0.18, 'sine', 0.25, 500); noise(0.1, 0.25, 600); },
+  superHit(spike: boolean) {
+    tone(spike ? 90 : 160, 0.22, 'sawtooth', 0.22, spike ? -50 : 220);
+    noise(0.16, 0.6, spike ? 500 : 1400);
+  },
   chime() { [784, 659, 523].forEach((f, i) => tone(f, 0.35, 'sine', 0.22, 0, i * 0.28)); },
   dash() { noise(0.12, 0.3, 700); tone(180, 0.1, 'sine', 0.15, 120); },
   cheer() { noise(0.6, 0.12, 1200); },

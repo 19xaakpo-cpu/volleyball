@@ -5,7 +5,7 @@
 
 import {
   BALL_SUBSTEPS, GROUND, IN_CROUCH, IN_JUMP, IN_LEFT, IN_RIGHT, NET_X, PH_OVER, PH_RALLY, PH_SERVE,
-  SACK_RY, W, ballGravityStep, cloneState, homeX, moveBallFree, sackRadii, step,
+  SACK_RY, SUPER_WINDOW, W, ballGravityStep, cloneState, homeX, moveBallFree, sackRadii, step,
 } from './sim/game.ts';
 import type { Ball, GameEvent, GameState } from './sim/game.ts';
 
@@ -31,6 +31,7 @@ const MODE_STAND = 0;
 const MODE_RUN = 1;
 const MODE_JUMP = 2;
 const MODE_DIG = 3; // присісти — сильне підкидання вгору
+const MODE_SUPER = 4; // присісти й одразу стрибнути — суперудар
 
 interface Plan {
   x: number;
@@ -55,6 +56,16 @@ function planInput(s: GameState, p: number, plan: Plan, deadzone: number): numbe
     if (b.vy > 0 && b.y > me.y - ry - 130 && adx < 95) inp = toNet;
   } else if (plan.mode === MODE_DIG) {
     if (b.vy > 0 && b.y > me.y - 170 && adx < 80) inp |= IN_CROUCH;
+  } else if (plan.mode === MODE_SUPER) {
+    if (me.y >= GROUND) {
+      if (adx < 75 && b.y < me.y - 150 && b.y > me.y - 380 && b.vy > -4) {
+        // спершу коротко присісти, наступного кадру — стрибок
+        if (me.sinceCrouch > SUPER_WINDOW) inp = (inp & ~IN_JUMP) | IN_CROUCH;
+        else inp = (inp & ~IN_CROUCH) | IN_JUMP;
+      }
+    } else {
+      inp = (inp & ~(IN_LEFT | IN_RIGHT)) | (adx < 55 ? toNet : inp & (IN_LEFT | IN_RIGHT));
+    }
   } else if (plan.mode === MODE_JUMP) {
     if (adx < 70 && b.y < me.y - 100 && b.y > me.y - 250 && b.vy > -4) inp |= IN_JUMP;
     if (me.y < GROUND) inp = (inp & ~(IN_LEFT | IN_RIGHT)) | (adx < 50 ? toNet : inp & (IN_LEFT | IN_RIGHT));
@@ -70,6 +81,7 @@ export class Bot {
   private lastOut = 0;
   private rallyKey = '';
   private blunder = 0;
+  private dashSeq: number[] = [];
   private rand: () => number;
 
   constructor(p: number, diff: Difficulty, rand: () => number = Math.random) {
@@ -118,7 +130,7 @@ export class Bot {
           }
         }
       }
-      if (c.phase !== PH_RALLY) return 0;
+      if (c.phase !== PH_RALLY && c.phase !== PH_SERVE) return 0;
       if (hit && !this.mine(c.ball.x)) {
         // перелетів — оцінюємо, наскільки далеко від суперника впаде
         const [lx] = this.predict(c, GROUND - SACK_RY);
@@ -141,7 +153,17 @@ export class Bot {
     const dir = this.p === 0 ? 1 : -1;
     if (s.phase === PH_SERVE) {
       if (s.server === this.p) {
-        this.plan = { x: s.ball.x - dir * (10 + this.rand() * 25), mode: this.rand() < 0.5 ? MODE_RUN : MODE_STAND };
+        // м'яч висить: стрибаємо до нього (суперстрибком, якщо вміємо)
+        const modes = this.prof.jump ? [MODE_JUMP, MODE_SUPER] : [MODE_JUMP];
+        let best: [number, Plan] = [-1e9, { x: s.ball.x - dir * 14, mode: MODE_JUMP }];
+        for (const off of [0, 10, 20, 30, 42]) {
+          for (const mode of modes) {
+            const plan = { x: s.ball.x - dir * off, mode };
+            const sc = this.evaluate(s, plan) + this.rand() * 25;
+            if (sc > best[0]) best = [sc, plan];
+          }
+        }
+        this.plan = best[1];
       } else {
         this.plan = { x: homeX(this.p), mode: MODE_STAND };
       }
@@ -158,7 +180,7 @@ export class Bot {
     }
     const scored: [number, Plan][] = [];
     const modes = [MODE_STAND, MODE_RUN];
-    if (this.prof.jump) modes.push(MODE_JUMP);
+    if (this.prof.jump) modes.push(MODE_JUMP, MODE_SUPER);
     if (this.prof.dig) modes.push(MODE_DIG);
     for (const off of OFFSETS) {
       const x = Math.max(40, Math.min(W - 40, lx - dir * off));
@@ -193,11 +215,17 @@ export class Bot {
       this.replan(s);
     }
     let out = planInput(s, this.p, this.plan, this.prof.deadzone);
-    // ривок до далекого м'яча (на "нормально" і "складно")
+    // ривок до далекого м'яча (на "нормально" і "складно"): подвійне натискання стрілки
     const me = s.players[this.p];
-    if (this.prof.jump && s.phase === PH_RALLY && me.y >= GROUND && me.dash === 0 && me.recover === 0 && me.dashCd === 0) {
+    if (this.dashSeq.length > 0) {
+      out = (out & ~(IN_LEFT | IN_RIGHT | IN_JUMP | IN_CROUCH)) | this.dashSeq.shift()!;
+    } else if (this.prof.jump && s.phase === PH_RALLY && me.y >= GROUND && me.dash === 0 && me.recover === 0 && me.dashCd === 0) {
       const d = this.plan.x - me.x;
-      if (Math.abs(d) > 230 && !(this.lastOut & IN_CROUCH)) out = (out & ~IN_JUMP) | IN_CROUCH | (d > 0 ? IN_RIGHT : IN_LEFT);
+      if (Math.abs(d) > 230) {
+        const bit = d > 0 ? IN_RIGHT : IN_LEFT;
+        this.dashSeq = [bit, 0, bit];
+        out = out & ~(IN_LEFT | IN_RIGHT);
+      }
     }
     this.lastOut = out;
     return out;
