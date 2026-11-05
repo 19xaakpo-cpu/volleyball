@@ -134,6 +134,23 @@ const fans: Fan[] = (() => {
   return out;
 })();
 
+/** Глядачі на лавах картинки майданчика: 4 ряди (від заднього до переднього), дві трибуни. */
+const photoFans: Fan[] = (() => {
+  const r = rng(91);
+  const out: Fan[] = [];
+  const rows = [234, 253, 273, 295]; // верх дошок сидінь (координати гри)
+  rows.forEach((py, ri) => {
+    const s = 0.52 + ri * 0.06;
+    for (const [x0, x1] of [[10, 436], [526, 914]]) {
+      for (let x = x0 + (ri % 2) * 9 + r() * 6; x < x1; x += 24 + r() * 10) {
+        if (r() < 0.16) continue;
+        out.push({ x, y: py - 30, kind: Math.floor(r() * 3), phase: r() * 6.28, s: s + r() * 0.05 });
+      }
+    }
+  });
+  return out;
+})();
+
 function courtStatic(g: G) {
   // стеля і стіна арени — світлі
   const wall = g.createLinearGradient(0, 0, 0, GROUND);
@@ -1258,7 +1275,7 @@ const statics: Record<string, (g: G) => void> = {
 };
 
 /** Локації з готовими картинками-фонами (public/bg/<id>.webp). */
-const PHOTO_BG = new Set(['beach', 'kyiv', 'metro', 'lysychansk', 'yard']);
+const PHOTO_BG = new Set(['beach', 'kyiv', 'metro', 'lysychansk', 'yard', 'court']);
 const photos = new Map<string, HTMLImageElement>();
 function photo(id: string): HTMLImageElement | null {
   if (!PHOTO_BG.has(id)) return null;
@@ -1296,6 +1313,10 @@ export class SceneRenderer {
       // готова картинка замість намальованого фону
       g.drawImage(ph, 0, 0, W, H);
       if (id === 'yard') yardPhotoFlies(g, t);
+      if (id === 'court') {
+        for (const f of photoFans) drawFan(g, f, t, this.cheer);
+        this.cheer = Math.max(0, this.cheer - 0.006);
+      }
       return;
     }
     g.drawImage(c, 0, 0, W, H);

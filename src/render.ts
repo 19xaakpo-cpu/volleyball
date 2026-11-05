@@ -132,7 +132,7 @@ export class Renderer {
           this.react(1 - e.winner, pl.losePoint, 78);
           // розгромний рахунок — з мішка того, хто програє, висипається начинка
           const gap = s.score[e.winner] - s.score[1 - e.winner];
-          if (gap >= 4) this.spill(s, 1 - e.winner, Math.min(16, 4 + (gap - 4) * 3));
+          if (gap >= 4) this.spill(s, 1 - e.winner, gap >= 6 ? 2 : 1);
           this.scenes.cheer = 1;
           break;
         }
@@ -161,7 +161,7 @@ export class Renderer {
         life: 220 + Math.random() * 60, id, size: 16 + Math.random() * 6,
       });
     }
-    if (this.spills.length > 80) this.spills.splice(0, this.spills.length - 80);
+    if (this.spills.length > 6) this.spills.splice(0, this.spills.length - 6);
   }
 
   private drawSpills() {
