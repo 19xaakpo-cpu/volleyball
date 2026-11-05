@@ -1095,6 +1095,28 @@ function yardStatic(g: G) {
   }
 }
 
+/** Мухи над трьома переповненими баками на картинці двору. */
+function yardPhotoFlies(g: G, t: number) {
+  const bins = [620, 724, 818]; // центри баків (координати гри)
+  g.fillStyle = '#141414';
+  for (let i = 0; i < 18; i++) {
+    const cx = bins[i % 3];
+    const ph = i * 1.7;
+    const x = cx + Math.sin(t * (2.1 + (i % 5) * 0.37) + ph) * 34 + Math.sin(t * 9 + ph * 2) * 5;
+    const y = 296 + Math.cos(t * (1.7 + (i % 4) * 0.29) + ph * 1.3) * 18 + Math.sin(t * 11 + ph) * 3;
+    g.beginPath();
+    g.ellipse(x, y, 2.6, 1.9, 0, 0, Math.PI * 2);
+    g.fill();
+    // крильця миготять
+    if (((t * 30 + i) | 0) % 2 === 0) {
+      g.fillStyle = 'rgba(220,230,240,0.6)';
+      g.fillRect(x - 2, y - 2.4, 1.6, 1.2);
+      g.fillRect(x + 0.6, y - 2.4, 1.6, 1.2);
+      g.fillStyle = '#141414';
+    }
+  }
+}
+
 function yardAnim(g: G, t: number) {
   // мухи над смітником
   g.fillStyle = '#111';
@@ -1236,7 +1258,7 @@ const statics: Record<string, (g: G) => void> = {
 };
 
 /** Локації з готовими картинками-фонами (public/bg/<id>.webp). */
-const PHOTO_BG = new Set(['beach', 'kyiv', 'metro']);
+const PHOTO_BG = new Set(['beach', 'kyiv', 'metro', 'lysychansk', 'yard']);
 const photos = new Map<string, HTMLImageElement>();
 function photo(id: string): HTMLImageElement | null {
   if (!PHOTO_BG.has(id)) return null;
@@ -1273,6 +1295,7 @@ export class SceneRenderer {
     if (ph) {
       // готова картинка замість намальованого фону
       g.drawImage(ph, 0, 0, W, H);
+      if (id === 'yard') yardPhotoFlies(g, t);
       return;
     }
     g.drawImage(c, 0, 0, W, H);
