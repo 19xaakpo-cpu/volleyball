@@ -415,7 +415,18 @@ export async function joinOnlineTour(code: string) {
   setTlStatus('Підключення…');
   try {
     const node = await PeerNode.create();
-    const link = await node.connect(PREFIX + code, { kind: 'hub' });
+    const t0 = Date.now();
+    let link: Link;
+    for (;;) {
+      try {
+        link = await node.connect(PREFIX + code, { kind: 'hub' });
+        break;
+      } catch (e: any) {
+        if (e.message !== 'peer-unavailable' || Date.now() - t0 > 90000) throw e;
+        setTlStatus('Турнір поки не знайдено — пробуємо ще… Якщо у когось увімкнений VPN — вимкніть.');
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
     client = {
       node, myId: -1, t: null, lobby: [], isHost: false, code, ball: env.ball(), rounds: 1,
       toHub: (m) => link.send(m), pendingConns: new Map(), inMatch: -1,

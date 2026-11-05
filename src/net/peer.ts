@@ -82,7 +82,7 @@ function wrap(conn: DataConnection): Link {
 
 export function errText(type: string): string {
   switch (type) {
-    case 'peer-unavailable': return 'Кімнату не знайдено. Перевірте код — або гру вже закрили.';
+    case 'peer-unavailable': return 'Кімнату не знайдено. Перевірте, що друг не закрив гру. Якщо у когось із вас увімкнений VPN — вимкніть його (з VPN гравці можуть потрапити на різні сервери з\'єднань і не бачать один одного).';
     case 'network': return 'Немає з\'єднання із сервером. Перевірте інтернет.';
     case 'server-error': return 'Сервер з\'єднань недоступний. Спробуйте за хвилину.';
     case 'browser-incompatible': return 'Цей браузер не підтримує WebRTC.';
@@ -100,6 +100,18 @@ export class PeerNode {
   onConnection: (link: Link) => void = (l) => l.close();
   onError: (text: string) => void = () => {};
   private destroyed = false;
+  private onWake: () => void = () => {};
+  private watchdog: ReturnType<typeof setInterval> | null = null;
+
+  /** Чи зареєстровані ми зараз на сервері-"сваті" (інакше нас не знайдуть). */
+  get online(): boolean {
+    return !this.peer.disconnected && !this.peer.destroyed;
+  }
+
+  private ensureOnline() {
+    if (this.destroyed || this.peer.destroyed || !this.peer.disconnected) return;
+    try { this.peer.reconnect(); } catch { /* спробуємо наступного разу */ }
+  }
 
   private constructor(peer: Peer, id: string) {
     this.peer = peer;
@@ -119,8 +131,13 @@ export class PeerNode {
     });
     peer.on('disconnected', () => {
       // втратили зв'язок лише із сервером-"сватом" — пробуємо відновити, прямі з'єднання живуть
-      if (!this.destroyed) setTimeout(() => { try { peer.reconnect(); } catch { /* ignore */ } }, 1000);
+      if (!this.destroyed) setTimeout(() => this.ensureOnline(), 1000);
     });
+    // вкладку знову відкрили / з'явився інтернет — одразу перевіряємо зв'язок із "сватом"
+    this.onWake = () => this.ensureOnline();
+    document.addEventListener('visibilitychange', this.onWake);
+    window.addEventListener('online', this.onWake);
+    this.watchdog = setInterval(() => this.ensureOnline(), 5000);
   }
 
   /** id === undefined — випадковий id від сервера. */
@@ -173,6 +190,9 @@ export class PeerNode {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    document.removeEventListener('visibilitychange', this.onWake);
+    window.removeEventListener('online', this.onWake);
+    if (this.watchdog) clearInterval(this.watchdog);
     setTimeout(() => this.peer.destroy(), 300);
   }
 }

@@ -153,7 +153,14 @@ $('#btn-host').addEventListener('click', async () => {
     ($('#btn-share') as HTMLButtonElement).onclick = () => {
       navigator.share?.({ title: 'Мішкобол', text: `${profiles[0].name} викликає тебе на гру в Мішкобол! Код: ${code}`, url: inviteUrl(code) }).catch(() => {});
     };
-    setWait('Виклик друга', 'Надішліть другу посилання або код. Гра почнеться, щойно він прийме виклик.');
+    setWait('Виклик друга', 'Надішліть другу посилання або код. Гра почнеться, щойно він прийме виклик. Не закривайте цю вкладку.');
+    // показуємо, якщо зв'язок із сервером-"сватом" зник (тоді друг тимчасово не знайде кімнату)
+    const st = setInterval(() => {
+      if (!node || isPlaying()) { clearInterval(st); return; }
+      const msg = node.online ? 'Надішліть другу посилання або код. Гра почнеться, щойно він прийме виклик. Не закривайте цю вкладку.'
+        : '⚠️ Немає зв\'язку із сервером з\'єднань — перепідключаємось… (друг поки не знайде кімнату)';
+      if (!busy) $('#wait-status').textContent = msg;
+    }, 2000);
     let busy = false;
     const n = node;
     node.onConnection = (link) => {
@@ -187,7 +194,22 @@ async function joinRoom(codeRaw: string) {
     node = await PeerNode.create();
     if (cancelled) { node.destroy(); return; }
     setWait('Кімната ' + code, 'Шукаємо суперника…');
-    const link = await node.connect(PREFIX + code, { kind: 'room' });
+    // кімнату можуть тимчасово не знайти (друг на мить втратив зв'язок із сервером) — пробуємо ще до 90 с
+    const t0 = Date.now();
+    let link;
+    for (;;) {
+      try {
+        link = await node.connect(PREFIX + code, { kind: 'room' });
+        break;
+      } catch (e: any) {
+        if (cancelled) return;
+        if (e.message !== 'peer-unavailable' || Date.now() - t0 > 90000) throw e;
+        const left = Math.max(0, Math.round((90000 - (Date.now() - t0)) / 1000));
+        setWait('Кімната ' + code, `Кімнату поки не знайдено — пробуємо ще (${left} с). Попросіть друга не закривати вкладку з грою. Якщо у когось увімкнений VPN — вимкніть.`);
+        await new Promise((r) => setTimeout(r, 3000));
+        if (cancelled) return;
+      }
+    }
     if (cancelled) { link.close(); return; }
     setWait('З\'єднано', 'Чекаємо на початок…');
     const n = node;
