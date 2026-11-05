@@ -7,6 +7,23 @@ import type { DataConnection } from 'peerjs';
 export const PREFIX = 'mishkobol-v2-';
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const DEBUG = typeof location !== 'undefined' && location.search.includes('debug');
+/** ?relay — примусово через ретранслятор (для перевірки, що TURN працює) */
+const FORCE_RELAY = typeof location !== 'undefined' && /[?&]relay\b/.test(location.search);
+
+// STUN — щоб дізнатися свою зовнішню адресу; TURN — ретранслятор, коли пряме з'єднання неможливе
+// (наприклад, провайдер ховає абонентів за спільною адресою). Сервер ExpressTURN, безкоштовний план.
+const ICE_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    {
+      urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'],
+      username: '000000002109359899',
+      credential: '0+3ta8H72FlMQ4EjVCilU2qX/Sg=',
+    },
+  ],
+  iceTransportPolicy: FORCE_RELAY ? 'relay' : 'all',
+};
+const PEER_OPTS = { debug: 0, config: ICE_CONFIG };
 
 export function randomCode(): string {
   let s = '';
@@ -71,7 +88,7 @@ export function errText(type: string): string {
     case 'browser-incompatible': return 'Цей браузер не підтримує WebRTC.';
     case 'webrtc': return 'Не вдалося встановити пряме з\'єднання (WebRTC).';
     case 'unavailable-id': return 'Такий код уже зайнятий.';
-    case 'timeout': return 'Не вдалося з\'єднатися за 20 секунд. Можливо, мережа блокує пряме з\'єднання — спробуйте іншу мережу (напр. мобільний інтернет).';
+    case 'timeout': return 'Не вдалося з\'єднатися за 25 секунд. Можливо, мережа блокує пряме з\'єднання — спробуйте іншу мережу (напр. мобільний інтернет).';
     default: return `Помилка з'єднання (${type}).`;
   }
 }
@@ -88,7 +105,7 @@ export class PeerNode {
     this.peer = peer;
     this.id = id;
     peer.on('connection', (conn) => {
-      const t = setTimeout(() => { if (!conn.open) conn.close(); }, 20000);
+      const t = setTimeout(() => { if (!conn.open) conn.close(); }, 25000);
       conn.on('open', () => {
         clearTimeout(t);
         if (!this.destroyed) this.onConnection(wrap(conn));
@@ -109,7 +126,7 @@ export class PeerNode {
   /** id === undefined — випадковий id від сервера. */
   static create(id?: string): Promise<PeerNode> {
     return new Promise((resolve, reject) => {
-      const peer = id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
+      const peer = id ? new Peer(id, PEER_OPTS) : new Peer(PEER_OPTS);
       let done = false;
       const fail = (e: any) => {
         if (done) return;
@@ -128,7 +145,7 @@ export class PeerNode {
     });
   }
 
-  connect(remoteId: string, meta: any, timeoutMs = 20000): Promise<Link> {
+  connect(remoteId: string, meta: any, timeoutMs = 25000): Promise<Link> {
     return new Promise((resolve, reject) => {
       const conn = this.peer.connect(remoteId, { reliable: false, serialization: 'json', metadata: meta });
       let done = false;
