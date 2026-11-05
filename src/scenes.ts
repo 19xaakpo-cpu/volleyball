@@ -1235,6 +1235,21 @@ const statics: Record<string, (g: G) => void> = {
   beach: beachStatic, court: courtStatic, lysychansk: lysStatic, kyiv: kyivStatic, metro: metroStatic, yard: yardStatic,
 };
 
+/** Локації з готовими картинками-фонами (public/bg/<id>.webp). */
+const PHOTO_BG = new Set(['beach', 'kyiv', 'metro']);
+const photos = new Map<string, HTMLImageElement>();
+function photo(id: string): HTMLImageElement | null {
+  if (!PHOTO_BG.has(id)) return null;
+  let im = photos.get(id);
+  if (!im) {
+    im = new Image();
+    im.decoding = 'async';
+    im.src = `bg/${id}.webp`;
+    photos.set(id, im);
+  }
+  return im.complete && im.naturalWidth > 0 ? im : null;
+}
+
 export class SceneRenderer {
   private cache = new Map<string, HTMLCanvasElement>();
   private px = 0;
@@ -1253,6 +1268,12 @@ export class SceneRenderer {
       cg.scale(px, px);
       (statics[id] ?? beachStatic)(cg);
       this.cache.set(id, c);
+    }
+    const ph = photo(id);
+    if (ph) {
+      // готова картинка замість намальованого фону
+      g.drawImage(ph, 0, 0, W, H);
+      return;
     }
     g.drawImage(c, 0, 0, W, H);
     if (id === 'kyiv') kyivAnim(g, t, score);
