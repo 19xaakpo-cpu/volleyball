@@ -32,6 +32,8 @@ const MODE_RUN = 1;
 const MODE_JUMP = 2;
 const MODE_DIG = 3; // присісти — сильне підкидання вгору
 const MODE_SUPER = 4; // присісти й одразу стрибнути — суперудар
+const MODE_SERVE_JUMP = 5; // подача: стати точно під м'ячем, тоді стрибнути
+const MODE_SERVE_SUPER = 6; // подача суперстрибком
 
 interface Plan {
   x: number;
@@ -56,6 +58,18 @@ function planInput(s: GameState, p: number, plan: Plan, deadzone: number): numbe
     if (b.vy > 0 && b.y > me.y - ry - 130 && adx < 95) inp = toNet;
   } else if (plan.mode === MODE_DIG) {
     if (b.vy > 0 && b.y > me.y - 170 && adx < 80) inp |= IN_CROUCH;
+  } else if (plan.mode === MODE_SERVE_JUMP || plan.mode === MODE_SERVE_SUPER) {
+    // на подачі м'яч висить: спершу точно стаємо на позицію, і лише тоді стрибаємо; у повітрі не смикаємось
+    if (me.y < GROUND) return 0;
+    if (Math.abs(d) <= deadzone + 1) {
+      inp &= ~(IN_LEFT | IN_RIGHT);
+      if (plan.mode === MODE_SERVE_SUPER) {
+        if (me.sinceCrouch > SUPER_WINDOW) inp |= IN_CROUCH;
+        else inp |= IN_JUMP;
+      } else {
+        inp |= IN_JUMP;
+      }
+    }
   } else if (plan.mode === MODE_SUPER) {
     if (me.y >= GROUND) {
       if (adx < 75 && b.y < me.y - 150 && b.y > me.y - 380 && b.vy > -4) {
@@ -154,9 +168,11 @@ export class Bot {
     if (s.phase === PH_SERVE) {
       if (s.server === this.p) {
         // м'яч висить: стрибаємо до нього (суперстрибком, якщо вміємо)
-        const modes = this.prof.jump ? [MODE_JUMP, MODE_SUPER] : [MODE_JUMP];
-        let best: [number, Plan] = [-1e9, { x: s.ball.x - dir * 14, mode: MODE_JUMP }];
-        for (const off of [0, 10, 20, 30, 42]) {
+        // звичайним стрибком м'яч дістається лише майже точно під ним — тож малі зсуви
+        const modes = this.prof.jump ? [MODE_SERVE_JUMP, MODE_SERVE_SUPER] : [MODE_SERVE_JUMP];
+        const offs = this.prof.jump ? [0, 8, 16, 24, 34] : [0, 5, 10, 14];
+        let best: [number, Plan] = [-1e9, { x: s.ball.x - dir * 6, mode: MODE_SERVE_JUMP }];
+        for (const off of offs) {
           for (const mode of modes) {
             const plan = { x: s.ball.x - dir * off, mode };
             const sc = this.evaluate(s, plan) + this.rand() * 25;
