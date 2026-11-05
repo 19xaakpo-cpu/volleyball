@@ -394,7 +394,8 @@ function collideSack(b: Ball, k: Sack, p: number, boost: number, netHalf: number
     if (b.vy > -CROUCH_POP) b.vy = -CROUCH_POP;
   }
   let kind = 1;
-  if (k.superAir) {
+  // суперудар — лише верхньою/боковою частиною мішка (знизу м'яч б'ється звичайно)
+  if (k.superAir && ny < 0.2) {
     // суперудар: м'яч летить швидше і вище; біля сітки боком — "гасіння" вниз
     const toNet = p === 0 ? 1 : -1;
     const sp0 = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
@@ -416,6 +417,18 @@ function collideSack(b: Ball, k: Sack, p: number, boost: number, netHalf: number
       if (dy > -0.6) dy = -0.6;
       if (dx * toNet < 0.25) dx = toNet * 0.25;
       kind = 2;
+      // напрямок не може йти всередину мішка (інакше м'яч одразу відскочить униз —
+      // це виглядало як "гасіння собі"): мінімум 0.25 від поверхні
+      let ln = Math.sqrt(dx * dx + dy * dy);
+      dx /= ln; dy /= ln;
+      const dn = dx * nx + dy * ny;
+      if (dn < 0.25) {
+        dx -= (dn - 0.25) * nx;
+        dy -= (dn - 0.25) * ny;
+        ln = Math.sqrt(dx * dx + dy * dy);
+        dx /= ln; dy /= ln;
+      }
+      if (dy > -0.35) dy = -0.35; // і все одно вгору
     }
     const l = Math.sqrt(dx * dx + dy * dy);
     b.vx = (dx / l) * sp;

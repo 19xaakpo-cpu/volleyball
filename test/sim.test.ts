@@ -169,3 +169,27 @@ test('гасіння — лише впритул до сітки; здалеку
   assert.equal(far.spike, false);
   assert.ok(far.vy < 0, 'здалеку — вгору');
 });
+
+test('суперудар далеко від сітки ніколи не летить униз (навіть ззаду чи збоку мішка)', () => {
+  let r = 12345;
+  const rnd = () => ((r = (r * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  let supers = 0;
+  for (let i = 0; i < 6000; i++) {
+    const s = createGame(15, 0);
+    s.phase = PH_RALLY;
+    const k = s.players[0];
+    k.x = 60 + rnd() * 300; k.y = 250 + rnd() * 200; k.vy = -12 + rnd() * 14; k.superAir = true;
+    const ang = rnd() * Math.PI * 2, d = 50 + rnd() * 30;
+    s.ball.x = k.x + Math.cos(ang) * d; s.ball.y = k.y - 25 + Math.sin(ang) * d * 0.7;
+    s.ball.vx = (rnd() - 0.5) * 12; s.ball.vy = (rnd() - 0.5) * 12;
+    const ev: GameEvent[] = [];
+    for (let f = 0; f < 4; f++) { step(s, rnd() < 0.5 ? 2 : 0, 0, ev); if (ev.some(e => e.type === 'hit')) break; }
+    const h = ev.find(e => e.type === 'hit');
+    if (h && h.type === 'hit' && h.super) {
+      supers++;
+      assert.equal(h.spike, false);
+      assert.ok(s.ball.vy < 0, `м'яч полетів униз: vy=${s.ball.vy}`);
+    }
+  }
+  assert.ok(supers > 1000);
+});
